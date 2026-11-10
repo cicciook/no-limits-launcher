@@ -44,9 +44,9 @@ class CoverWorker(QThread):
 
 class InstallWorker(QThread):
     completed = Signal(dict); failed = Signal(str); progress = Signal(int, str)
-    def __init__(self, project_id, title): super().__init__(); self.project_id=project_id; self.title=title
+    def __init__(self, project_id, title, icon_url=None): super().__init__(); self.project_id=project_id; self.title=title; self.icon_url=icon_url
     def run(self):
-        try: self.completed.emit(install_modrinth_project(self.project_id,self.title,self.progress.emit))
+        try: self.completed.emit(install_modrinth_project(self.project_id,self.title,self.progress.emit,self.icon_url))
         except Exception as exc: self.failed.emit(str(exc))
 
 class LaunchWorker(QThread):
@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
         pack=item.data(Qt.ItemDataRole.UserRole) if item else None
         if not pack: QMessageBox.information(self,'Seleziona un modpack','Seleziona prima un risultato Modrinth.'); return
         self.install_button.setEnabled(False); self.install_progress.setValue(0); self.install_status.setText('Preparazione installazione…')
-        self.install_worker=InstallWorker(pack['id'],pack['title'])
+        self.install_worker=InstallWorker(pack['id'],pack['title'],pack.get('icon_url'))
         self.install_worker.progress.connect(self.install_progress_update)
         self.install_worker.completed.connect(self.install_success)
         self.install_worker.failed.connect(self.install_failed)
