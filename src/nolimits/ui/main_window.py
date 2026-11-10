@@ -23,6 +23,9 @@ APP_DIR = Path.home() / ".no-limits-launcher"
 CONFIG_FILE = APP_DIR / "config.json"
 DEFAULT_MICROSOFT_CLIENT_ID = "2055c8b7-8738-4ee0-a152-bc724edd35c4"
 
+# Percorso della nuova risorsa logo, se salvata o accessibile.
+LOGO_PATH = Path("src/nolimits/ui/logo.png")
+
 def load_config():
     APP_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -73,8 +76,6 @@ class HeroDataWorker(QThread):
         provider = ModrinthProvider()
         for key, config in self.pack_queries.items():
             try:
-                # Resolve the canonical Modrinth project directly by slug first.
-                # This avoids search ranking, spelling and title variations.
                 pack = None
                 for slug in config.get("project_slugs", []):
                     project_response = requests.get(
@@ -88,17 +89,13 @@ class HeroDataWorker(QThread):
                             pack = candidate
                             break
 
-                # Fallback: accept only exact, explicitly configured titles/slugs.
                 if not pack:
                     results = provider.search_modpacks(config["query"], limit=100)
                     expected_titles = {
                         self._normalise(config["title"]),
                         *(self._normalise(value) for value in config.get("title_aliases", [])),
                     }
-                    expected_slugs = {
-                        value.lower().strip()
-                        for value in config.get("slug_aliases", [])
-                    }
+                    expected_slugs = {value.lower().strip() for value in config.get("slug_aliases", [])}
                     pack = next(
                         (
                             item for item in results
@@ -110,7 +107,6 @@ class HeroDataWorker(QThread):
                 if not pack:
                     continue
 
-                # Use only the icon belonging to the resolved project.
                 image_url = pack.get("icon_url")
                 if not image_url:
                     continue
@@ -123,13 +119,9 @@ class HeroDataWorker(QThread):
                 response.raise_for_status()
                 self.image_loaded.emit(key, response.content)
             except Exception:
-                # One unavailable cover must not stop the remaining projects.
                 continue
 
-
 class CoverLabel(QLabel):
-    """Image label that center-crops covers without stretching their aspect ratio."""
-
     def __init__(self, placeholder="", parent=None):
         super().__init__(placeholder, parent)
         self._source_pixmap = None
@@ -226,7 +218,6 @@ class CoverWorker(QThread):
             self.loaded.emit(self.item, response.content)
         except Exception as exc:
             self.failed.emit(self.item, str(exc))
-
 
 class ContentResultCard(QFrame):
     def __init__(self, list_widget, item):
@@ -336,89 +327,196 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         
-        # Sidebar sinistra
+        # SIDEBAR SINISTRA (Stile moderno image_7.png con focus "Istanze")
         self.sidebar = QFrame()
         self.sidebar.setObjectName("Sidebar")
-        self.sidebar.setFixedWidth(230)
+        self.sidebar.setFixedWidth(240)
+        self.sidebar.setStyleSheet("""
+            QFrame#Sidebar {
+                background-color: #111422;
+                border-right: 1px solid #1c1f2f;
+            }
+        """)
         side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(16, 24, 16, 20)
-        side.setSpacing(8)
+        side.setContentsMargins(14, 20, 14, 20)
+        side.setSpacing(14)
         
-        brand = QLabel("Ｎ  NO LIMITS")
-        brand.setObjectName("Brand")
-        brand.setStyleSheet("font-size: 20px; font-weight: 900; color: #ffffff; border: none; background: transparent;")
-        side.addWidget(brand)
+        # Sezione istanze integrata nella sidebar (image_7.png)
+        inst_header = QHBoxLayout()
+        inst_title = QLabel("Instances")
+        inst_title.setStyleSheet("font-weight: 800; font-size: 14px; color: #a5b4fc;")
+        add_inst_btn = QPushButton("+")
+        add_inst_btn.setFixedSize(22, 22)
+        add_inst_btn.setStyleSheet("""
+            QPushButton {
+                background: #1e2238; border: none; border-radius: 4px; color: #ffffff; font-weight: bold; font-size: 14px;
+            }
+            QPushButton:hover { background: #2e3456; }
+        """)
+        add_inst_btn.clicked.connect(self.add_instance)
+        inst_header.addWidget(inst_title)
+        inst_header.addStretch()
+        inst_header.addWidget(add_inst_btn)
+        side.addLayout(inst_header)
         
-        sub = QLabel("M I N E C R A F T   L A U N C H E R")
-        sub.setObjectName("BrandAccent")
-        sub.setStyleSheet("font-size: 9px; font-weight: 700; color: #6ea4ff; letter-spacing: 1px; border: none; background: transparent;")
-        side.addWidget(sub)
-        side.addSpacing(20)
+        # Lista istanze verticali nella sidebar
+        self.sidebar_instance_list = QListWidget()
+        self.sidebar_instance_list.setStyleSheet("""
+            QListWidget {
+                background: transparent; border: none; outline: none;
+            }
+            QListWidget::item {
+                background: #181a28; border: 1px solid #23273e; border-radius: 8px; margin-bottom: 8px; padding: 10px;
+            }
+            QListWidget::item:selected {
+                background: #2563eb; border-color: #3b82f6;
+            }
+        """)
+        self.sidebar_instance_list.setIconSize(QSize(36, 36))
+        self.sidebar_instance_list.itemClicked.connect(self.on_sidebar_instance_clicked)
+        side.addWidget(self.sidebar_instance_list, 1)
+        
+        # Sezione Partner / Social nella sidebar in basso
+        side_footer = QVBoxLayout()
+        side_footer.setSpacing(8)
+        
+        discord_btn = QPushButton("💬 Join the Discord")
+        discord_btn.setStyleSheet("""
+            QPushButton {
+                background: #3b82f6; border-radius: 8px; padding: 10px; font-weight: 800; font-size: 12px; color: white; border: none;
+            }
+            QPushButton:hover { background: #2563eb; }
+        """)
+        discord_btn.clicked.connect(lambda: webbrowser.open("https://discord.gg/"))
+        side_footer.addWidget(discord_btn)
+        
+        links_row = QHBoxLayout()
+        sponsor_btn = QPushButton("♡ Sponsor")
+        sponsor_btn.setStyleSheet("background: transparent; border: none; color: #94a3b8; font-size: 11px; text-align: left;")
+        sponsor_btn.clicked.connect(lambda: webbrowser.open("https://github.com/sponsors"))
+        website_btn = QPushButton("🌐 Website")
+        website_btn.setStyleSheet("background: transparent; border: none; color: #94a3b8; font-size: 11px; text-align: right;")
+        website_btn.clicked.connect(lambda: webbrowser.open("https://minecraft.net"))
+        links_row.addWidget(sponsor_btn)
+        links_row.addWidget(website_btn)
+        side_footer.addLayout(links_row)
+        
+        ver_lbl = QLabel("Launcher 0.3.0")
+        ver_lbl.setStyleSheet("color: #475569; font-size: 11px; font-weight: bold;")
+        side_footer.addWidget(ver_lbl, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        side.addLayout(side_footer)
+        outer.addWidget(self.sidebar)
+        
+        # AREA CONTENUTI PRINCIPALE (A DESTRA)
+        self.content_area = QFrame()
+        self.content_area.setStyleSheet("""
+            QFrame#content_area {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #121422, stop:1 #08090f);
+            }
+        """)
+        self.content_area.setObjectName("content_area")
+        content_layout = QVBoxLayout(self.content_area)
+        content_layout.setContentsMargins(24, 18, 24, 20)
+        content_layout.setSpacing(16)
+        
+        # BARRA SUPERIORE (Navigation, Account e LOGO image_6.png)
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(12)
+        top_bar.setContentsMargins(0, 0, 0, 10)
+        
+        # Navigation in stile modern chip/pills
+        self.nav_bar = QFrame()
+        self.nav_bar.setStyleSheet("background: transparent; border: none;")
+        nav_layout = QHBoxLayout(self.nav_bar)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(8)
         
         self.nav_buttons = {}
-        self.stack = QStackedWidget()
-        
-        for label in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
-            btn = QPushButton("   " + label)
-            btn.setIcon(make_nav_icon(label))
-            btn.setIconSize(QSize(22, 22))
+        for label in ["Home", "Catalogo", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
+            btn = QPushButton(label)
             btn.setObjectName("Nav")
-            btn.setProperty("active", label == "Home")
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: #1b1e2e; border: 1px solid #282c44; border-radius: 6px; color: #94a3b8; padding: 6px 14px; font-weight: 700; font-size: 12px;
+                }
+                QPushButton:checked {
+                    background: #2563eb; color: #ffffff; border-color: #3b82f6;
+                }
+                QPushButton:hover:!checked { background: #23273c; color: #ffffff; }
+            """)
             btn.clicked.connect(lambda checked=False, n=label: self.navigate(n))
-            side.addWidget(btn)
+            nav_layout.addWidget(btn)
             self.nav_buttons[label] = btn
             
-        side.addStretch()
+        self.nav_buttons["Home"].setChecked(True)
+        top_bar.addWidget(self.nav_bar)
+        top_bar.addStretch()
         
-        # Account Card in basso a sinistra
-        profile_card = QFrame()
-        profile_card.setStyleSheet("background: #0d1322; border: 1px solid #1a2744; border-radius: 10px; padding: 6px;")
-        profile_row = QHBoxLayout(profile_card)
-        profile_row.setContentsMargins(6, 6, 6, 6)
-        profile_row.setSpacing(10)
+        # Account User Box (in alto)
+        self.user_chip = QPushButton()
+        self.user_chip.setStyleSheet("""
+            QPushButton {
+                background: #1b1e2e; border: 1px solid #282c44; border-radius: 8px; padding: 4px 12px; font-weight: 700; color: #ffffff;
+            }
+            QPushButton:hover { background: #23273c; }
+        """)
+        self.user_chip.clicked.connect(lambda: self.navigate("Account"))
+        
+        uc_layout = QHBoxLayout(self.user_chip)
+        uc_layout.setContentsMargins(4, 4, 12, 4)
+        uc_layout.setSpacing(8)
         
         self.skin_head = QLabel()
-        self.skin_head.setFixedSize(36, 36)
+        self.skin_head.setFixedSize(24, 24)
         self.skin_head.setScaledContents(True)
-        self.skin_head.setStyleSheet("border-radius: 6px; background: #182645; border: none;")
+        self.skin_head.setStyleSheet("border-radius: 4px; background: #2c314d;")
+        uc_layout.addWidget(self.skin_head)
         
-        profile_info = QVBoxLayout()
-        profile_info.setSpacing(2)
-        
-        user_name = self.config.get("offline_username", "cicciook")
-        self.account_label = QLabel(user_name)
-        self.account_label.setStyleSheet("font-weight: 700; font-size: 13px; color: #ffffff; border: none; background: transparent;")
-        
+        self.account_label = QLabel("Utente")
+        self.account_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #ffffff; background: transparent; border: none;")
         self.status_label = QLabel("• Online")
-        self.status_label.setStyleSheet("font-size: 11px; color: #4ade80; font-weight: 600; border: none; background: transparent;")
+        self.status_label.setStyleSheet("font-size: 10px; color: #4ade80; background: transparent; border: none;")
         
-        profile_info.addWidget(self.account_label)
-        profile_info.addWidget(self.status_label)
+        uc_info = QVBoxLayout()
+        uc_info.setSpacing(0)
+        uc_info.addWidget(self.account_label)
+        uc_info.addWidget(self.status_label)
+        uc_layout.addLayout(uc_info)
+        top_bar.addWidget(self.user_chip)
         
-        arrow_lbl = QLabel("⌵")
-        arrow_lbl.setStyleSheet("color: #64748b; font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        # LOGO "NO LIMITS" IN ALTO A DESTRA (image_6.png)
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(160, 48)
+        self.logo_label.setScaledContents(True)
+        if LOGO_PATH.exists():
+            self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)))
+        else:
+            # Fallback artistico se il file non è ancora copiato
+            self.logo_label.setText("Ｎ  NO LIMITS\nＬ Ａ Ｕ Ｎ Ｃ Ｈ Ｅ Ｒ")
+            self.logo_label.setStyleSheet("font-size: 13px; font-weight: 900; color: #6ea4ff; letter-spacing: 1px;")
+        top_bar.addWidget(self.logo_label)
         
-        profile_row.addWidget(self.skin_head)
-        profile_row.addLayout(profile_info, 1)
-        profile_row.addWidget(arrow_lbl)
+        content_layout.addLayout(top_bar)
         
-        side.addWidget(profile_card)
-        
-        outer.addWidget(self.sidebar)
-        outer.addWidget(self.stack, 1)
+        # Stacked Widget per le schermate
+        self.stack = QStackedWidget()
+        content_layout.addWidget(self.stack, 1)
+        outer.addWidget(self.content_area, 1)
         
         self.pages = {}
-        for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
+        for name in ["Home", "Catalogo", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
             page = QWidget()
             page_layout = QVBoxLayout(page)
-            page_layout.setContentsMargins(24, 20, 24, 20)
+            page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(16)
             self.pages[name] = page
             self.stack.addWidget(page)
             
         self.build_home()
         self.build_catalog()
-        self.build_instances()
         self.build_console()
         self.build_simple_pages()
         self.navigate("Home")
@@ -431,8 +529,8 @@ class MainWindow(QMainWindow):
         frame.setObjectName("Panel")
         frame.setStyleSheet("""
             QFrame#Panel {
-                background: #0c1427;
-                border: 1px solid #19294d;
+                background: #171928;
+                border: 1px solid #23273e;
                 border-radius: 12px;
             }
             QLabel {
@@ -459,7 +557,7 @@ class MainWindow(QMainWindow):
         box = QVBoxLayout()
         t = QLabel(title)
         t.setObjectName("SectionTitle")
-        t.setStyleSheet("font-size: 22px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
+        t.setStyleSheet("font-size: 24px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
         d = QLabel(desc)
         d.setObjectName("Muted")
         d.setStyleSheet("color: #64748b; font-size: 13px; border: none; background: transparent;")
@@ -470,12 +568,12 @@ class MainWindow(QMainWindow):
     def build_home(self):
         p = self.pages["Home"]
         
-        # 1. Top Search Header
+        # Top Search Bar inside Home Page
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
         
         search_wrap = QFrame()
-        search_wrap.setStyleSheet("background: #0d162a; border: 1px solid #1c2d54; border-radius: 8px;")
+        search_wrap.setStyleSheet("background: #151726; border: 1px solid #23273e; border-radius: 8px;")
         sw_layout = QHBoxLayout(search_wrap)
         sw_layout.setContentsMargins(12, 6, 12, 6)
         
@@ -500,7 +598,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(mr_btn)
         p.layout().addLayout(top_bar)
         
-        # 2. Hero carousel: Modrinth cover, matching gradient and dot navigation.
+        # Hero carousel: Modrinth cover, matching gradient and dot navigation.
         self.hero_frame = QFrame()
         self.hero_frame.setObjectName("HeroFrame")
         self.hero_frame.setStyleSheet("""
@@ -605,8 +703,8 @@ class MainWindow(QMainWindow):
             card = QFrame()
             card.setStyleSheet("""
                 QFrame {
-                    background: #0c1427;
-                    border: 1px solid #1a294a;
+                    background: #181b2a;
+                    border: 1px solid #282c44;
                     border-radius: 12px;
                 }
                 QLabel {
@@ -621,7 +719,7 @@ class MainWindow(QMainWindow):
             c_img = CoverLabel(p_name)
             c_img.setFixedHeight(120)
             c_img.setMinimumWidth(0)
-            c_img.setStyleSheet("background: #162447; border-radius: 8px; font-weight: 800; color: #6ea4ff; font-size: 14px; border: none;")
+            c_img.setStyleSheet("background: #25283d; border-radius: 8px; font-weight: 800; color: #6ea4ff; font-size: 14px; border: none;")
             
             c_title = QLabel(p_name)
             c_title.setStyleSheet("font-weight: 700; font-size: 14px; color: #ffffff;")
@@ -868,6 +966,15 @@ class MainWindow(QMainWindow):
         self.install_progress.setValue(max(0, min(100, int(value))))
         self.install_status.setText(message)
         self.log_console(f"[INSTALL {value:3d}%] {message}")
+
+    def on_sidebar_instance_clicked(self, item):
+        # Selezione istanza dalla Sidebar
+        instance = item.data(Qt.ItemDataRole.UserRole)
+        # Sincronizza l'istanza anche per le altre pagine
+        for selector in getattr(self, "content_selectors", {}).values():
+            index = selector.findText(instance.get("name", ""))
+            if index >= 0:
+                selector.setCurrentIndex(index)
 
     def build_instances(self):
         p = self.pages["Le mie istanze"]
@@ -1208,9 +1315,8 @@ class MainWindow(QMainWindow):
     def navigate(self, name):
         self.stack.setCurrentWidget(self.pages[name])
         for label, button in self.nav_buttons.items():
-            button.setProperty("active", label == name)
-            button.style().unpolish(button)
-            button.style().polish(button)
+            button.setChecked(label == name)
+            
         if name == "Le mie istanze": self.refresh_instances()
         if name in ("Mod", "Shader", "Resource Pack"): self.refresh_content_instances()
         if name == "Catalogo" and self.results.count() == 0: self.search_modpacks()
@@ -1324,19 +1430,53 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Istanza non creata", str(exc))
 
     def refresh_instances(self):
-        if not hasattr(self, "instance_list"): return
+        if not hasattr(self, "instance_list") or not hasattr(self, "sidebar_instance_list"): return
         self.instance_list.clear()
+        self.sidebar_instance_list.clear()
         for instance in self.store.list_instances():
-            item = QListWidgetItem(f'{instance["name"]}  •  Minecraft {instance["minecraft_version"]}  •  {instance["loader"].title()}  •  {instance["status"]}')
+            status_desc = f'{instance["name"]}  •  Minecraft {instance["minecraft_version"]}  •  {instance["loader"].title()}  •  {instance["status"]}'
+            
+            # Update Le Mie Istanze Page
+            item = QListWidgetItem(status_desc)
             item.setData(Qt.ItemDataRole.UserRole, instance)
             item.setSizeHint(QSize(0, 90))
             self.instance_list.addItem(item)
+            
+            # Update sidebar (image_7.png Style)
+            side_item = QListWidgetItem()
+            side_item.setData(Qt.ItemDataRole.UserRole, instance)
+            side_item.setSizeHint(QSize(0, 52))
+            
+            # Elaborazione card personalizzata per istanza in sidebar
+            card = QFrame()
+            card.setStyleSheet("background: transparent; border: none;")
+            c_layout = QHBoxLayout(card)
+            c_layout.setContentsMargins(6, 6, 6, 6)
+            
+            icon_lbl = QLabel("🎮")
+            icon_lbl.setStyleSheet("font-size: 18px; color: #a5b4fc; background: transparent; border: none;")
+            
+            info_layout = QVBoxLayout()
+            info_layout.setSpacing(2)
+            name_lbl = QLabel(instance["name"])
+            name_lbl.setStyleSheet("font-weight: bold; font-size: 12px; color: #ffffff;")
+            stat_lbl = QLabel("• Ready" if instance["status"] == "installed" else "• Native build")
+            stat_lbl.setStyleSheet("font-size: 10px; color: #10b981;" if instance["status"] == "installed" else "font-size: 10px; color: #64748b;")
+            info_layout.addWidget(name_lbl)
+            info_layout.addWidget(stat_lbl)
+            
+            c_layout.addWidget(icon_lbl)
+            c_layout.addLayout(info_layout, 1)
+            self.sidebar_instance_list.addItem(side_item)
+            self.sidebar_instance_list.setItemWidget(side_item, card)
+
             if instance.get("icon_url"):
                 worker = CoverWorker(item, instance["icon_url"])
                 worker.loaded.connect(self.set_pack_cover)
                 self.cover_workers.append(worker)
                 worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
                 worker.start()
+                
         self.refresh_content_instances()
 
     def rename_selected_instance(self):
@@ -1441,7 +1581,7 @@ class MainWindow(QMainWindow):
     def set_skin_head(self, label, data):
         pixmap = QPixmap()
         if pixmap.loadFromData(data):
-            label.setPixmap(pixmap.scaled(36, 36, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+            label.setPixmap(pixmap.scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
 
     def update_account_ui(self):
         if self.account:
