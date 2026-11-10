@@ -227,7 +227,7 @@ class MainWindow(QMainWindow):
 
     def show_pack_details(self,item):
         pack=item.data(Qt.ItemDataRole.UserRole)
-        if pack: QMessageBox.information(self,pack["title"],f'{pack.get("description","")}\n\nAutore: {pack.get("author","Unknown")}\nDownload: {pack.get("downloads",0):,}\nID Modrinth: {pack.get("id","")}\n\nUsa il pulsante Installa per creare un'istanza separata.')
+        if pack: QMessageBox.information(self,pack["title"],f'{pack.get("description","")}\n\nAutore: {pack.get("author","Unknown")}\nDownload: {pack.get("downloads",0):,}\nID Modrinth: {pack.get("id","")}\n\nUsa il pulsante Installa per creare una nuova istanza separata.')
 
     def search_failed(self,message): QMessageBox.warning(self,"Ricerca non riuscita",message)
     def search_finished(self): self.search_button.setEnabled(True); self.search_button.setText("Cerca")
