@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 import subprocess
 import uuid
 from pathlib import Path
@@ -23,7 +24,7 @@ def _safe_name(value: str) -> str:
 
 
 def install_modrinth_project(project_id: str, display_name: str, progress=None) -> dict:
-    report = progress or (lambda _message: None)
+    report = progress or (lambda _value, _message: None)
     response = requests.get(f"{API}/project/{project_id}/version", headers=HEADERS, timeout=30)
     response.raise_for_status()
     versions = response.json()
@@ -88,7 +89,7 @@ def launch_instance(instance: dict, profile: dict | None = None, offline_usernam
         username = (offline_username or "").strip()
         if not username or len(username) > 16 or not re.fullmatch(r"[A-Za-z0-9_]+", username):
             raise RuntimeError("Inserisci un nome offline valido (1–16 caratteri: lettere, numeri e _).")
-        player_uuid = uuid.uuid3(uuid.NAMESPACE_DNS, "OfflinePlayer:" + username).hex
+        player_uuid = str(uuid.UUID(bytes=hashlib.md5(("OfflinePlayer:" + username).encode("utf-8")).digest(), version=3))
         token = ""
         user_type = "legacy"
     game_dir = Path(instance.get("directory", ""))
