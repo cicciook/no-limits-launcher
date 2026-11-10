@@ -208,7 +208,7 @@ class MainWindow(QMainWindow):
     def build_instances(self):
         p=self.pages["Le mie istanze"]; self.page_header("Le mie istanze","Le tue installazioni","Ogni istanza avrà cartella, versione Minecraft e mod loader indipendenti.")
         row=QHBoxLayout(); launch=QPushButton("▶ Avvia selezionata"); launch.setObjectName("Primary"); launch.clicked.connect(self.launch_selected_instance); row.addWidget(launch); row.addStretch(); add=QPushButton("+ Nuova istanza"); add.setObjectName("Primary"); add.clicked.connect(self.add_instance); row.addWidget(add); p.layout().addLayout(row)
-        self.instance_list=QListWidget(); p.layout().addWidget(self.instance_list,1); self.refresh_instances()
+        self.instance_list=QListWidget(); self.instance_list.setIconSize(QSize(128,76)); self.instance_list.setSpacing(7); p.layout().addWidget(self.instance_list,1);\n        controls=QHBoxLayout(); rename=QPushButton("Rinomina"); rename.clicked.connect(self.rename_selected_instance); controls.addWidget(rename); remove=QPushButton("Elimina"); remove.clicked.connect(self.delete_selected_instance); controls.addWidget(remove); p.layout().addLayout(controls); self.refresh_instances()
 
     def build_simple_pages(self):
         for name,desc in [("Mod","Gestione delle mod per ogni istanza."),("Shader","Gestisci shader pack e impostazioni grafiche."),("Resource Pack","Organizza texture e resource pack."),("Impostazioni","Percorsi Java, memoria RAM, lingua e preferenze."),("Account","Accedi con il tuo account Microsoft per giocare a Minecraft."),("Info","No Limits Launcher — un launcher indipendente, in sviluppo.")]:
@@ -421,7 +421,45 @@ class MainWindow(QMainWindow):
         if not hasattr(self,"instance_list"): return
         self.instance_list.clear()
         for instance in self.store.list_instances():
-            self.instance_list.addItem(f'{instance["name"]}  •  Minecraft {instance["minecraft_version"]}  •  {instance["loader"].title()}  •  {instance["status"]}')
+            item=QListWidgetItem(f'{instance["name"]}  •  Minecraft {instance["minecraft_version"]}  •  {instance["loader"].title()}  •  {instance["status"]}')
+            item.setData(Qt.ItemDataRole.UserRole,instance)
+            item.setSizeHint(QSize(0,90))
+            self.instance_list.addItem(item)
+            if instance.get("icon_url"):
+                worker=CoverWorker(item,instance["icon_url"])
+                worker.loaded.connect(self.set_pack_cover)
+                self.cover_workers.append(worker)
+                worker.finished.connect(lambda w=worker:self.cover_workers.remove(w) if w in self.cover_workers else None)
+                worker.start()
+        self.refresh_content_instances()
+
+    def rename_selected_instance(self):
+        item=self.instance_list.currentItem()
+        instance=item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not instance: return
+        name,ok=QInputDialog.getText(self,"Rinomina istanza","Nuovo nome:",text=instance.get("name",""))
+        if ok and name.strip():
+            instance["name"]=name.strip()
+            try:
+                self.store.update_instance(instance["id"],instance)
+                self.refresh_instances()
+            except Exception as exc:
+                QMessageBox.warning(self,"Istanza",str(exc))
+
+    def delete_selected_instance(self):
+        item=self.instance_list.currentItem()
+        instance=item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not instance: return
+        answer=QMessageBox.question(self,"Elimina istanza","Eliminare l'istanza selezionata e tutti i suoi file?")
+        if answer != QMessageBox.StandardButton.Yes: return
+        try:
+            import shutil
+            folder=Path(instance.get("directory",""))
+            if folder.is_dir(): shutil.rmtree(folder)
+            self.store.remove_instance(instance["id"])
+            self.refresh_instances()
+        except Exception as exc:
+            QMessageBox.warning(self,"Istanza",str(exc))
 
     def save_offline_name(self,value):
         self.config["offline_username"]=value.strip(); save_config(self.config)
