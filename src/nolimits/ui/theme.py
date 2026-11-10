@@ -16,12 +16,17 @@ QPushButton#Primary:hover { background: #4380ff; }
 QPushButton#Nav { text-align: left; padding: 12px 14px; border: 0; background: transparent; color: #aebcda; }
 QPushButton#Nav:hover { background: #172746; color: white; }
 QPushButton#Nav[active="true"] { background: #17336b; color: white; border-left: 3px solid #438cff; }
-QLineEdit, QComboBox, QListWidget { background: #101a2d; color: #eaf0ff; border: 1px solid #293c60; border-radius: 9px; padding: 11px; }
-QListWidget::item { padding: 13px; border-bottom: 1px solid #22304b; }
+QLineEdit, QComboBox, QListWidget, QPlainTextEdit { background: #101a2d; color: #eaf0ff; border: 1px solid #293c60; border-radius: 9px; padding: 11px; }
+QListWidget::item { padding: 13px; border-bottom: 1px solid #22304b; border-radius: 8px; margin: 3px; }
 QListWidget::item:selected { background: #1b3565; }
 QFrame#Panel { background: #111b2e; border: 1px solid #233657; border-radius: 15px; }
 QFrame#Hero { background: #101f42; border: 1px solid #2853a1; border-radius: 18px; }
 QFrame#PackCard { background: #121e33; border: 1px solid #2a3c5e; border-radius: 12px; }
 QTabWidget::pane { border: 0; }
 QScrollArea { border: 0; background: transparent; }
+QPlainTextEdit { background: #070b13; color: #9fe8bd; border: 1px solid #263957; border-radius: 12px; padding: 12px; font-family: Consolas, monospace; font-size: 12px; }
+QProgressBar { background: #0b1425; color: #eaf0ff; border: 1px solid #2a416a; border-radius: 7px; min-height: 17px; text-align: center; font-weight: 700; }
+QProgressBar::chunk { background: #3478ff; border-radius: 6px; }
+QPushButton:disabled { color: #64738f; background: #111a2b; border-color: #202e47; }
+QToolTip { background: #17233b; color: #f1f5ff; border: 1px solid #4b78c8; padding: 5px; }
 """
