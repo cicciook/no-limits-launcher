@@ -73,30 +73,44 @@ class HeroDataWorker(QThread):
         provider = ModrinthProvider()
         for key, config in self.pack_queries.items():
             try:
-                # Search broadly: Modrinth titles often differ slightly from
-                # the display name used by the launcher (punctuation, edition,
-                # or the FTB prefix). Match only explicitly approved aliases.
-                results = provider.search_modpacks(config["query"], limit=100)
-                expected_titles = {
-                    self._normalise(config["title"]),
-                    *(self._normalise(value) for value in config.get("title_aliases", [])),
-                }
-                expected_slugs = {
-                    value.lower().strip()
-                    for value in config.get("slug_aliases", [])
-                }
-                pack = next(
-                    (
-                        item for item in results
-                        if self._normalise(item.get("title", "")) in expected_titles
-                        or item.get("slug", "").lower().strip() in expected_slugs
-                    ),
-                    None,
-                )
+                # Resolve the canonical Modrinth project directly by slug first.
+                # This avoids search ranking, spelling and title variations.
+                pack = None
+                for slug in config.get("project_slugs", []):
+                    project_response = requests.get(
+                        f"{provider.API}/project/{slug}",
+                        timeout=15,
+                        headers={"User-Agent": "NoLimitsLauncher/0.3.0"},
+                    )
+                    if project_response.status_code == 200:
+                        candidate = project_response.json()
+                        if candidate.get("project_type") == "modpack" and candidate.get("icon_url"):
+                            pack = candidate
+                            break
+
+                # Fallback: accept only exact, explicitly configured titles/slugs.
+                if not pack:
+                    results = provider.search_modpacks(config["query"], limit=100)
+                    expected_titles = {
+                        self._normalise(config["title"]),
+                        *(self._normalise(value) for value in config.get("title_aliases", [])),
+                    }
+                    expected_slugs = {
+                        value.lower().strip()
+                        for value in config.get("slug_aliases", [])
+                    }
+                    pack = next(
+                        (
+                            item for item in results
+                            if self._normalise(item.get("title", "")) in expected_titles
+                            or item.get("slug", "").lower().strip() in expected_slugs
+                        ),
+                        None,
+                    )
                 if not pack:
                     continue
 
-                # icon_url is the project's actual cover/icon on Modrinth.
+                # Use only the icon belonging to the resolved project.
                 image_url = pack.get("icon_url")
                 if not image_url:
                     continue
@@ -291,11 +305,16 @@ class MainWindow(QMainWindow):
         
         self.hero_index = 0
         self.hero_packs = [
-            {"title": "All The Mods 9", "desc": "Un modpack completo con centinaia di mod per un'esperienza unica!", "tags": ["Modpack", "1.20.1", "Forge", "Tech"], "query": "All the mods 9"},
-            {"title": "RLCraft", "desc": "L'esperienza di sopravvivenza più estrema e impegnativa su Minecraft.", "tags": ["Hardcore", "1.12.2", "Forge", "RPG"], "query": "RLCraft"},
-            {"title": "SkyFactory 4", "desc": "Automazione, risorse e magia a partire da un singolo albero nel vuoto.", "tags": ["Skyblock", "1.12.2", "Forge", "Tech"], "query": "SkyFactory 4"},
-            {"title": "FTB OceanBlock 2", "desc": "Sopravvivi in un oceano infinito con nuove tecnologie e quest uniche.", "tags": ["Ocean", "1.20.1", "Forge", "Quests"], "query": "OceanBlock"},
-            {"title": "Create Above & Beyond", "desc": "Crea fabbriche automatizzate e conquista lo spazio con la mod Create.", "tags": ["Automation", "1.20.1", "NeoForge", "Space"], "query": "Create Above and Beyond"}
+            {"title": "All The Mods 9",
+                "project_slugs": ["all-the-mods-9"], "desc": "Un modpack completo con centinaia di mod per un'esperienza unica!", "tags": ["Modpack", "1.20.1", "Forge", "Tech"], "query": "All the mods 9"},
+            {"title": "RLCraft",
+                "project_slugs": ["rlcraft"], "desc": "L'esperienza di sopravvivenza più estrema e impegnativa su Minecraft.", "tags": ["Hardcore", "1.12.2", "Forge", "RPG"], "query": "RLCraft"},
+            {"title": "SkyFactory 4",
+                "project_slugs": ["skyfactory-4"], "desc": "Automazione, risorse e magia a partire da un singolo albero nel vuoto.", "tags": ["Skyblock", "1.12.2", "Forge", "Tech"], "query": "SkyFactory 4"},
+            {"title": "FTB OceanBlock 2",
+                "project_slugs": ["ftb-oceanblock-2", "oceanblock-2"], "desc": "Sopravvivi in un oceano infinito con nuove tecnologie e quest uniche.", "tags": ["Ocean", "1.20.1", "Forge", "Quests"], "query": "OceanBlock"},
+            {"title": "Create Above & Beyond",
+                "project_slugs": ["create-above-and-beyond"], "desc": "Crea fabbriche automatizzate e conquista lo spazio con la mod Create.", "tags": ["Automation", "1.20.1", "NeoForge", "Space"], "query": "Create Above and Beyond"}
         ]
         
         self.root = QWidget()
