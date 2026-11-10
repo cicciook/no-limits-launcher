@@ -5,6 +5,8 @@ Launcher Minecraft desktop multipiattaforma, in sviluppo, indipendente da Nuovo 
 ## Prototipo attuale
 - Interfaccia desktop scura blu/neon con navigazione laterale ispirata al concept grafico
 - Ricerca modpack tramite API pubblica Modrinth
+- Download e installazione del formato Modrinth .mrpack in cartelle isolate
+- Avvio delle istanze .mrpack con account Microsoft collegato
 - Registro locale per istanze Minecraft indipendenti
 - Login Microsoft Device Code Flow portato da Nuovo Ordine, con Xbox Live, XSTS, profilo Minecraft, ripristino sessione e logout
 - Refresh token nel portachiavi di sistema con namespace separato dal vecchio launcher
@@ -26,7 +28,8 @@ Apri Account, inserisci il Client ID pubblico (Application/Client ID) dell'app M
 
 ## Da completare
 - Ripristino automatico sessione tramite refresh token all'avvio e logout
-- Installazione modpack e risoluzione loader/librerie
+- Migliorare selezione versioni e gestione aggiornamenti modpack
+- Installazione e gestione completa dei modpack CurseForge
 - Avvio del gioco e gestione Java
 - Integrazione CurseForge tramite API autorizzata
 - Client Android separato: non condivide il runtime Java desktop
