@@ -28,6 +28,13 @@ class InstanceStore:
                 return
         raise KeyError(instance_id)
 
+    def remove_instance(self, instance_id: str) -> None:
+        items = self.list_instances()
+        remaining = [item for item in items if item.get("id") != instance_id]
+        if len(remaining) == len(items):
+            raise KeyError(instance_id)
+        self._write(remaining)
+
     def _write(self, items):
         self.path.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
 
