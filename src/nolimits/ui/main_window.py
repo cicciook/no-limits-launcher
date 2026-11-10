@@ -35,11 +35,18 @@ class LoginWorker(QThread):
             self.completed.emit(profile)
         except Exception as exc: self.failed.emit(str(exc))
 
+class SessionWorker(QThread):
+    completed = Signal(dict); failed = Signal(str)
+    def __init__(self, client_id, token): super().__init__(); self.client_id=client_id; self.token=token
+    def run(self):
+        try: self.completed.emit(auth.refresh(self.client_id,self.token,lambda _message: None))
+        except Exception as exc: self.failed.emit(str(exc))
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("No Limits Launcher"); self.resize(1320, 820); self.setMinimumSize(980, 650); self.setStyleSheet(DARK_STYLE)
-        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None
+        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None; self.session_worker=None
         self.root=QWidget(); self.root.setObjectName("Root"); self.setCentralWidget(self.root)
         outer=QHBoxLayout(self.root); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
         self.sidebar=QFrame(); self.sidebar.setObjectName("Sidebar"); self.sidebar.setFixedWidth(218); side=QVBoxLayout(self.sidebar); side.setContentsMargins(15,24,15,18); side.setSpacing(8)
@@ -55,7 +62,7 @@ class MainWindow(QMainWindow):
         for name in ["Home","Catalogo","Le mie istanze","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
             page=QWidget(); page_layout=QVBoxLayout(page); page_layout.setContentsMargins(28,24,28,24); page_layout.setSpacing(16); self.pages[name]=page; self.stack.addWidget(page)
         self.build_home(); self.build_catalog(); self.build_instances(); self.build_simple_pages(); self.navigate("Home")
-        self.update_account_ui()
+        self.update_account_ui(); self.restore_session()
 
     def panel(self, title=None, subtitle=None):
         frame=QFrame(); frame.setObjectName("Panel"); box=QVBoxLayout(frame); box.setContentsMargins(18,16,18,16); box.setSpacing(9)
@@ -108,6 +115,7 @@ class MainWindow(QMainWindow):
                 self.client_id_input=QLineEdit(); self.client_id_input.setPlaceholderText("Microsoft Application (Client) ID"); self.client_id_input.setText(self.config.get("microsoft_client_id",os.getenv("NO_LIMITS_MSA_CLIENT_ID",""))); box.addWidget(self.client_id_input)
                 save=QPushButton("Salva Client ID"); save.clicked.connect(self.save_client_id); box.addWidget(save,0,Qt.AlignmentFlag.AlignLeft)
                 self.login_button=QPushButton("Accedi con Microsoft"); self.login_button.setObjectName("Primary"); self.login_button.clicked.connect(self.start_login); box.addWidget(self.login_button,0,Qt.AlignmentFlag.AlignLeft)
+                self.logout_button=QPushButton("Disconnetti account"); self.logout_button.clicked.connect(self.logout); self.logout_button.setVisible(False); box.addWidget(self.logout_button,0,Qt.AlignmentFlag.AlignLeft)
                 p=self.pages[name]; p.layout().addWidget(card); p.layout().addStretch()
             elif name=="Impostazioni":
                 card,box=self.panel("Configurazione Microsoft","Inserisci il Client ID pubblico dell'app registrata in Microsoft Entra. Non inserire un client secret.")
@@ -177,5 +185,37 @@ class MainWindow(QMainWindow):
 
     def login_finished(self): self.login_button.setEnabled(True); self.login_button.setText("Accedi con Microsoft")
 
+
+    def restore_session(self):
+        client_id=self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID","")
+        if not client_id: return
+        token=auth.saved_token(client_id)
+        if not token: return
+        self.login_status.setText("Ripristino sessione Microsoft…")
+        self.session_worker=SessionWorker(client_id,token)
+        self.session_worker.completed.connect(self.session_restored)
+        self.session_worker.failed.connect(lambda _message:self.login_status.setText("Sessione scaduta: accedi di nuovo."))
+        self.session_worker.start()
+
+    def session_restored(self,profile):
+        self.account=profile
+        self.login_status.setText(f'Connesso come {profile.get("name","Minecraft player")}')
+        self.update_account_ui()
+
+    def logout(self):
+        client_id=self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID","")
+        try: auth.forget(client_id)
+        except Exception as exc: QMessageBox.warning(self,"Logout",str(exc)); return
+        self.account=None
+        self.login_status.setText("Account disconnesso.")
+        self.update_account_ui()
+
     def update_account_ui(self):
-        if self.account: self.account_label.setText(f'●  {self.account.get("name","Online")}')
+        if self.account:
+            self.account_label.setText(f'●  {self.account.get("name","Online")}')
+            if hasattr(self,"logout_button"): self.logout_button.setVisible(True)
+            if hasattr(self,"login_button"): self.login_button.setText("Account collegato")
+        else:
+            self.account_label.setText("●  Account non collegato")
+            if hasattr(self,"logout_button"): self.logout_button.setVisible(False)
+            if hasattr(self,"login_button"): self.login_button.setText("Accedi con Microsoft")
