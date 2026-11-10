@@ -1111,11 +1111,6 @@ class MainWindow(QMainWindow):
             author.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             version.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-            right = QVBoxLayout()
-            right.setSpacing(5)
-            right.addWidget(author)
-            right.addWidget(version)
-            right.addStretch(1)
             open_page = QPushButton("Apri pagina ↗")
             open_page.setObjectName("SecondaryAction")
             project_url = project.get("project_url", "")
@@ -1131,6 +1126,10 @@ class MainWindow(QMainWindow):
 
             card = ContentResultCard(self.content_lists[kind], item)
             card.setObjectName("ContentResultCard")
+            for label in (title, downloads, author, version):
+                label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            if description:
+                summary.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             layout = QHBoxLayout(card)
             layout.setContentsMargins(12, 9, 12, 9)
             layout.setSpacing(13)
