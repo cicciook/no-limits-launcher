@@ -207,12 +207,12 @@ class MainWindow(QMainWindow):
         
         brand = QLabel("Ｎ  NO LIMITS")
         brand.setObjectName("Brand")
-        brand.setStyleSheet("font-size: 20px; font-weight: 900; color: #ffffff;")
+        brand.setStyleSheet("font-size: 20px; font-weight: 900; color: #ffffff; border: none; background: transparent;")
         side.addWidget(brand)
         
         sub = QLabel("M I N E C R A F T   L A U N C H E R")
         sub.setObjectName("BrandAccent")
-        sub.setStyleSheet("font-size: 9px; font-weight: 700; color: #6ea4ff; letter-spacing: 1px;")
+        sub.setStyleSheet("font-size: 9px; font-weight: 700; color: #6ea4ff; letter-spacing: 1px; border: none; background: transparent;")
         side.addWidget(sub)
         side.addSpacing(24)
         
@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
         
         user_name = self.config.get("offline_username", "cicciook")
         self.account_label = QLabel(user_name)
-        self.account_label.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 500;")
+        self.account_label.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 500; border: none; background: transparent;")
         profile_layout.addWidget(self.account_label)
         
         side.addWidget(profile_box)
@@ -268,10 +268,20 @@ class MainWindow(QMainWindow):
     def panel(self, title=None, subtitle=None):
         frame = QFrame()
         frame.setObjectName("Panel")
-        frame.setStyleSheet("background: #0d162a; border: 1px solid #1e2c4a; border-radius: 12px;")
+        frame.setStyleSheet("""
+            QFrame#Panel {
+                background: #0d162a;
+                border: 1px solid #1e2c4a;
+                border-radius: 12px;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
+            }
+        """)
         box = QVBoxLayout(frame)
         box.setContentsMargins(18, 16, 18, 16)
-        box.setSpacing(9)
+        box.setSpacing(6)
         if title:
             t = QLabel(title)
             t.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
@@ -288,10 +298,10 @@ class MainWindow(QMainWindow):
         box = QVBoxLayout()
         t = QLabel(title)
         t.setObjectName("SectionTitle")
-        t.setStyleSheet("font-size: 24px; font-weight: 800; color: #ffffff;")
+        t.setStyleSheet("font-size: 24px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
         d = QLabel(desc)
         d.setObjectName("Muted")
-        d.setStyleSheet("color: #64748b; font-size: 13px;")
+        d.setStyleSheet("color: #64748b; font-size: 13px; border: none; background: transparent;")
         box.addWidget(t)
         box.addWidget(d)
         self.pages[page].layout().addLayout(box)
@@ -308,6 +318,10 @@ class MainWindow(QMainWindow):
                 background: linear-gradient(135deg, #162447 0%, #0f172a 100%);
                 border: 1px solid #1e3a8a;
                 border-radius: 14px;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
             }
         """)
         h = QHBoxLayout(hero)
@@ -329,7 +343,7 @@ class MainWindow(QMainWindow):
         left.addSpacing(6)
         
         go = QPushButton("Esplora il catalogo  →")
-        go.setStyleSheet("background: #2563eb; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 10px 20px; font-size: 13px;")
+        go.setStyleSheet("background: #2563eb; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 10px 20px; font-size: 13px; border: none;")
         go.clicked.connect(lambda: self.navigate("Catalogo"))
         left.addWidget(go, 0, Qt.AlignmentFlag.AlignLeft)
         h.addLayout(left, 2)
@@ -366,7 +380,7 @@ class MainWindow(QMainWindow):
         
         # Sezione Accesso Rapido
         heading = QLabel("Accesso rapido")
-        heading.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; margin-top: 10px;")
+        heading.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; margin-top: 10px; border: none; background: transparent;")
         p.layout().addWidget(heading)
         
         quick = QHBoxLayout()
