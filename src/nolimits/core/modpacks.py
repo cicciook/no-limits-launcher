@@ -73,7 +73,9 @@ def install_modrinth_project(project_id: str, display_name: str, progress=None, 
         callback={"setStatus": set_status, "setProgress": set_progress, "setMax": set_max},
     )
     launch_version = minecraft_launcher_lib.mrpack.get_mrpack_launch_version(str(archive))
-    item = store.add_instance(name, info.get("minecraftVersion", "sconosciuta"), "modpack")
+    dependencies = info.get("dependencies", {})
+    pack_loader = next((loader for key, loader in (("fabric", "fabric"), ("forge", "forge"), ("neoforge", "neoforge"), ("quilt", "quilt")) if dependencies.get(key)), "vanilla")
+    item = store.add_instance(name, info.get("minecraftVersion", "sconosciuta"), pack_loader)
     item.update({"directory": str(instance_dir), "archive": str(archive), "launch_version": launch_version, "source": "modrinth", "project_id": project_id, "project_version_id": selected["id"], "icon_url": icon_url, "status": "installed"})
     store.update_instance(item["id"], item)
     report(100, "Installazione completata.")
