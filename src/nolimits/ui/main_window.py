@@ -1,6 +1,7 @@
 import os, json, webbrowser
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar)
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
@@ -27,6 +28,19 @@ class SearchWorker(QThread):
     def run(self):
         try: self.completed.emit(ModrinthProvider().search_modpacks(self.query))
         except Exception as exc: self.failed.emit(str(exc))
+
+class CoverWorker(QThread):
+    loaded = Signal(object, bytes)
+    def __init__(self, item, url):
+        super().__init__(); self.item=item; self.url=url
+    def run(self):
+        try:
+            import requests
+            response=requests.get(self.url, timeout=15, headers={"User-Agent":"NoLimitsLauncher/0.3.0"})
+            response.raise_for_status()
+            self.loaded.emit(self.item, response.content)
+        except Exception:
+            pass
 
 class InstallWorker(QThread):
     completed = Signal(dict); failed = Signal(str); progress = Signal(str)
@@ -62,7 +76,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("No Limits Launcher"); self.resize(1320, 820); self.setMinimumSize(980, 650); self.setStyleSheet(DARK_STYLE)
-        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None; self.session_worker=None; self.install_worker=None; self.launch_worker=None
+        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None; self.session_worker=None; self.install_worker=None; self.launch_worker=None; self.cover_workers=[]
         self.root=QWidget(); self.root.setObjectName("Root"); self.setCentralWidget(self.root)
         outer=QHBoxLayout(self.root); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
         self.sidebar=QFrame(); self.sidebar.setObjectName("Sidebar"); self.sidebar.setFixedWidth(218); side=QVBoxLayout(self.sidebar); side.setContentsMargins(15,24,15,18); side.setSpacing(8)
@@ -113,8 +127,8 @@ class MainWindow(QMainWindow):
         p=self.pages["Catalogo"]; self.page_header("Catalogo","Catalogo modpack","Cerca modpack su Modrinth. Il connettore CurseForge verrà attivato con API key autorizzata.")
         row=QHBoxLayout(); self.search_input=QLineEdit(); self.search_input.setPlaceholderText("Cerca modpack…"); self.search_input.returnPressed.connect(self.search_modpacks); row.addWidget(self.search_input,1)
         self.source=QPushButton("Modrinth  ✓"); self.source.setEnabled(False); row.addWidget(self.source)
-        self.search_button=QPushButton("Cerca"); self.search_button.setObjectName("Primary"); self.search_button.clicked.connect(self.search_modpacks); row.addWidget(self.search_button); p.layout().addLayout(row)
-        self.results=QListWidget(); self.results.itemDoubleClicked.connect(self.show_pack_details); p.layout().addWidget(self.results,1)
+        self.search_button=QPushButton("Cerca / più popolari"); self.search_button.setObjectName("Primary"); self.search_button.clicked.connect(self.search_modpacks); row.addWidget(self.search_button); p.layout().addLayout(row)
+        self.results=QListWidget(); self.results.setIconSize(QPixmap(112,72).size()); self.results.setSpacing(7); self.results.itemDoubleClicked.connect(self.show_pack_details); p.layout().addWidget(self.results,1)
         actions=QHBoxLayout(); self.install_button=QPushButton("Installa modpack selezionato"); self.install_button.setObjectName("Primary"); self.install_button.clicked.connect(self.install_selected_pack); actions.addWidget(self.install_button); self.install_status=QLabel(""); self.install_status.setObjectName("Muted"); actions.addWidget(self.install_status,1); p.layout().addLayout(actions)
         note=QLabel("Seleziona un risultato e premi Installa: il launcher scarica il pacchetto .mrpack e prepara un'istanza isolata."); note.setObjectName("Muted"); p.layout().addWidget(note)
 
@@ -145,6 +159,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.pages[name])
         for label,button in self.nav_buttons.items(): button.setProperty("active",label==name); button.style().unpolish(button); button.style().polish(button)
         if name=="Le mie istanze": self.refresh_instances()
+        if name=="Catalogo" and self.results.count()==0: self.search_modpacks()
 
     def search_modpacks(self):
         query=self.search_input.text().strip()
@@ -152,10 +167,33 @@ class MainWindow(QMainWindow):
         self.search_worker=SearchWorker(query); self.search_worker.completed.connect(self.show_results); self.search_worker.failed.connect(self.search_failed); self.search_worker.finished.connect(self.search_finished); self.search_worker.start()
 
     def show_results(self,packs):
-        if not packs: self.results.addItem("Nessun modpack trovato."); return
+        self.cover_workers=[]
+        if not packs:
+            self.results.addItem("Nessun modpack trovato. Prova un altro nome.")
+            return
         for pack in packs:
-            item=QListWidgetItem(f'{pack["title"]}\n{pack["author"]}  •  {pack["downloads"]:,} download\n{pack["description"]}')
-            item.setData(Qt.ItemDataRole.UserRole,pack); self.results.addItem(item)
+            description=(pack.get("description") or "").strip()
+            if len(description)>180: description=description[:177]+"..."
+            item=QListWidgetItem(
+                f'{pack.get("title","Modpack")}\n'
+                f'{pack.get("author","Unknown")}  •  {pack.get("downloads",0):,} download\n'
+                f'{description}'
+            )
+            item.setData(Qt.ItemDataRole.UserRole,pack)
+            item.setSizeHint(QPixmap(1,88).size())
+            self.results.addItem(item)
+            cover=pack.get("icon_url")
+            if cover:
+                worker=CoverWorker(item,cover)
+                worker.loaded.connect(self.set_pack_cover)
+                worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
+                self.cover_workers.append(worker)
+                worker.start()
+
+    def set_pack_cover(self,item,data):
+        pixmap=QPixmap()
+        if pixmap.loadFromData(data):
+            item.setIcon(QIcon(pixmap.scaled(112,72,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)))
 
     def install_selected_pack(self):
         item=self.results.currentItem()
