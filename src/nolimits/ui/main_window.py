@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         for label in ["Home","Catalogo","Le mie istanze","Console","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
             btn=QPushButton("   "+label); btn.setIcon(make_nav_icon(label)); btn.setIconSize(QSize(26,26)); btn.setObjectName("Nav"); btn.setProperty("active",label=="Home"); btn.clicked.connect(lambda checked=False,n=label:self.navigate(n)); side.addWidget(btn); self.nav_buttons[label]=btn
         side.addStretch()
-        self.account_label=QLabel("●  Account non collegato"); self.account_label.setObjectName("Muted"); side.addWidget(self.account_label)
+        self.skin_head=QLabel(); self.skin_head.setFixedSize(40,40); self.skin_head.setScaledContents(True); self.skin_head.setStyleSheet("border:1px solid #4654a4;border-radius:8px;background:#111a30;"); self.account_label=QLabel("Account non collegato"); self.account_label.setObjectName("Muted"); profile_row=QHBoxLayout(); profile_row.addWidget(self.skin_head); profile_row.addWidget(self.account_label,1); side.addLayout(profile_row)
         outer.addWidget(self.sidebar); outer.addWidget(self.stack,1)
         self.pages={}
         for name in ["Home","Catalogo","Le mie istanze","Console","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
@@ -511,12 +511,25 @@ class MainWindow(QMainWindow):
         self.login_status.setText("Account disconnesso.")
         self.update_account_ui()
 
+    def set_skin_head(self,label,data):
+        pixmap=QPixmap()
+        if pixmap.loadFromData(data):
+            label.setPixmap(pixmap.scaled(40,40,Qt.AspectRatioMode.KeepAspectRatioByExpanding,Qt.TransformationMode.SmoothTransformation))
+
     def update_account_ui(self):
         if self.account:
-            self.account_label.setText(f'●  {self.account.get("name","Online")}')
+            self.account_label.setText(self.account.get("name","Online"))
+            player_id=str(self.account.get("id","")).replace("-","")
+            if len(player_id)==32:
+                worker=CoverWorker(self.skin_head,"https://crafatar.com/avatars/"+player_id+"?size=64&overlay")
+                worker.loaded.connect(self.set_skin_head)
+                self.cover_workers.append(worker)
+                worker.finished.connect(lambda w=worker:self.cover_workers.remove(w) if w in self.cover_workers else None)
+                worker.start()
             if hasattr(self,"logout_button"): self.logout_button.setVisible(True)
             if hasattr(self,"login_button"): self.login_button.setText("Account collegato")
         else:
-            self.account_label.setText("●  Account non collegato")
+            self.skin_head.clear()
+            self.account_label.setText("Account non collegato")
             if hasattr(self,"logout_button"): self.logout_button.setVisible(False)
             if hasattr(self,"login_button"): self.login_button.setText("Accedi con Microsoft")
