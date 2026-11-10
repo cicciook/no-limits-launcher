@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar)
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
+from nolimits.core.modpacks import install_modrinth_project, launch_instance
 from nolimits import auth
 from .theme import DARK_STYLE
 
@@ -26,6 +27,20 @@ class SearchWorker(QThread):
         try: self.completed.emit(ModrinthProvider().search_modpacks(self.query))
         except Exception as exc: self.failed.emit(str(exc))
 
+class InstallWorker(QThread):
+    completed = Signal(dict); failed = Signal(str); progress = Signal(str)
+    def __init__(self, project_id, title): super().__init__(); self.project_id=project_id; self.title=title
+    def run(self):
+        try: self.completed.emit(install_modrinth_project(self.project_id,self.title,self.progress.emit))
+        except Exception as exc: self.failed.emit(str(exc))
+
+class LaunchWorker(QThread):
+    completed = Signal(); failed = Signal(str)
+    def __init__(self, instance, profile): super().__init__(); self.instance=instance; self.profile=profile
+    def run(self):
+        try: launch_instance(self.instance,self.profile); self.completed.emit()
+        except Exception as exc: self.failed.emit(str(exc))
+
 class LoginWorker(QThread):
     completed = Signal(dict); failed = Signal(str); progress = Signal(str)
     def __init__(self, client_id): super().__init__(); self.client_id=client_id
@@ -46,7 +61,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("No Limits Launcher"); self.resize(1320, 820); self.setMinimumSize(980, 650); self.setStyleSheet(DARK_STYLE)
-        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None; self.session_worker=None
+        self.store=InstanceStore(); self.config=load_config(); self.account=None; self.search_worker=None; self.login_worker=None; self.session_worker=None; self.install_worker=None; self.launch_worker=None
         self.root=QWidget(); self.root.setObjectName("Root"); self.setCentralWidget(self.root)
         outer=QHBoxLayout(self.root); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
         self.sidebar=QFrame(); self.sidebar.setObjectName("Sidebar"); self.sidebar.setFixedWidth(218); side=QVBoxLayout(self.sidebar); side.setContentsMargins(15,24,15,18); side.setSpacing(8)
@@ -99,11 +114,12 @@ class MainWindow(QMainWindow):
         self.source=QPushButton("Modrinth  ✓"); self.source.setEnabled(False); row.addWidget(self.source)
         self.search_button=QPushButton("Cerca"); self.search_button.setObjectName("Primary"); self.search_button.clicked.connect(self.search_modpacks); row.addWidget(self.search_button); p.layout().addLayout(row)
         self.results=QListWidget(); self.results.itemDoubleClicked.connect(self.show_pack_details); p.layout().addWidget(self.results,1)
+        actions=QHBoxLayout(); self.install_button=QPushButton("Installa modpack selezionato"); self.install_button.setObjectName("Primary"); self.install_button.clicked.connect(self.install_selected_pack); actions.addWidget(self.install_button); self.install_status=QLabel(""); self.install_status.setObjectName("Muted"); actions.addWidget(self.install_status,1); p.layout().addLayout(actions)
         note=QLabel("Nota: al momento la ricerca è attiva; installazione e risoluzione automatica dei loader sono in sviluppo."); note.setObjectName("Muted"); p.layout().addWidget(note)
 
     def build_instances(self):
         p=self.pages["Le mie istanze"]; self.page_header("Le mie istanze","Le tue installazioni","Ogni istanza avrà cartella, versione Minecraft e mod loader indipendenti.")
-        row=QHBoxLayout(); row.addStretch(); add=QPushButton("+ Nuova istanza"); add.setObjectName("Primary"); add.clicked.connect(self.add_instance); row.addWidget(add); p.layout().addLayout(row)
+        row=QHBoxLayout(); launch=QPushButton("▶ Avvia selezionata"); launch.setObjectName("Primary"); launch.clicked.connect(self.launch_selected_instance); row.addWidget(launch); row.addStretch(); add=QPushButton("+ Nuova istanza"); add.setObjectName("Primary"); add.clicked.connect(self.add_instance); row.addWidget(add); p.layout().addLayout(row)
         self.instance_list=QListWidget(); p.layout().addWidget(self.instance_list,1); self.refresh_instances()
 
     def build_simple_pages(self):
@@ -139,6 +155,37 @@ class MainWindow(QMainWindow):
         for pack in packs:
             item=QListWidgetItem(f'{pack["title"]}\n{pack["author"]}  •  {pack["downloads"]:,} download\n{pack["description"]}')
             item.setData(Qt.ItemDataRole.UserRole,pack); self.results.addItem(item)
+
+    def install_selected_pack(self):
+        item=self.results.currentItem()
+        pack=item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not pack: QMessageBox.information(self,'Seleziona un modpack','Seleziona prima un risultato Modrinth.'); return
+        self.install_button.setEnabled(False); self.install_status.setText('Preparazione installazione…')
+        self.install_worker=InstallWorker(pack['id'],pack['title'])
+        self.install_worker.progress.connect(self.install_status.setText)
+        self.install_worker.completed.connect(self.install_success)
+        self.install_worker.failed.connect(self.install_failed)
+        self.install_worker.finished.connect(lambda:self.install_button.setEnabled(True))
+        self.install_worker.start()
+
+    def install_success(self,instance):
+        self.install_status.setText(f'{instance["name"]} installato.')
+        self.refresh_instances()
+        QMessageBox.information(self,'Installazione completata',f'{instance["name"]} è stato installato. Vai in Le mie istanze per avviarlo.')
+
+    def install_failed(self,message):
+        self.install_status.setText('Installazione non riuscita.')
+        QMessageBox.warning(self,'Installazione modpack',message)
+
+    def launch_selected_instance(self):
+        row=self.instance_list.currentRow(); instances=self.store.list_instances()
+        if row<0 or row>=len(instances): QMessageBox.information(self,'Seleziona un\'istanza','Seleziona prima un\'istanza installata.'); return
+        instance=instances[row]
+        if instance.get('status')!='installed': QMessageBox.information(self,'Non installata','Questa istanza non è ancora installabile.'); return
+        if not self.account: QMessageBox.warning(self,'Login richiesto','Accedi con Microsoft prima di avviare Minecraft.'); self.navigate('Account'); return
+        self.launch_worker=LaunchWorker(instance,self.account)
+        self.launch_worker.failed.connect(lambda message:QMessageBox.warning(self,'Avvio Minecraft',message))
+        self.launch_worker.start()
 
     def show_pack_details(self,item):
         pack=item.data(Qt.ItemDataRole.UserRole)
