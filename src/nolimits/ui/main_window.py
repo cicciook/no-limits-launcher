@@ -10,6 +10,7 @@ from .theme import DARK_STYLE
 
 APP_DIR = Path.home() / ".no-limits-launcher"
 CONFIG_FILE = APP_DIR / "config.json"
+DEFAULT_MICROSOFT_CLIENT_ID = "2055c8b7-8738-4ee0-a152-bc724edd35c4"
 
 def load_config():
     APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,7 +129,7 @@ class MainWindow(QMainWindow):
             if name=="Account":
                 card,box=self.panel("Account Microsoft","Autenticazione ufficiale tramite Device Code Flow. Non chiediamo né memorizziamo la password Microsoft.")
                 self.login_status=QLabel("Non hai ancora collegato un account."); self.login_status.setObjectName("Muted"); box.addWidget(self.login_status)
-                self.client_id_input=QLineEdit(); self.client_id_input.setPlaceholderText("Microsoft Application (Client) ID"); self.client_id_input.setText(self.config.get("microsoft_client_id",os.getenv("NO_LIMITS_MSA_CLIENT_ID",""))); box.addWidget(self.client_id_input)
+                self.client_id_input=QLineEdit(); self.client_id_input.setPlaceholderText("Microsoft Application (Client) ID"); self.client_id_input.setText(self.config.get("microsoft_client_id",os.getenv("NO_LIMITS_MSA_CLIENT_ID",DEFAULT_MICROSOFT_CLIENT_ID))); box.addWidget(self.client_id_input)
                 save=QPushButton("Salva Client ID"); save.clicked.connect(self.save_client_id); box.addWidget(save,0,Qt.AlignmentFlag.AlignLeft)
                 self.login_button=QPushButton("Accedi con Microsoft"); self.login_button.setObjectName("Primary"); self.login_button.clicked.connect(self.start_login); box.addWidget(self.login_button,0,Qt.AlignmentFlag.AlignLeft)
                 self.logout_button=QPushButton("Disconnetti account"); self.logout_button.clicked.connect(self.logout); self.logout_button.setVisible(False); box.addWidget(self.logout_button,0,Qt.AlignmentFlag.AlignLeft)
@@ -234,7 +235,7 @@ class MainWindow(QMainWindow):
 
 
     def restore_session(self):
-        client_id=self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID","")
+        client_id=self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID") or DEFAULT_MICROSOFT_CLIENT_ID
         if not client_id: return
         token=auth.saved_token(client_id)
         if not token: return
