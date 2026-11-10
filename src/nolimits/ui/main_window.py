@@ -300,7 +300,7 @@ class MainWindow(QMainWindow):
         p = self.pages["Home"]
         self.page_header("Home", "Benvenuto in No Limits", "Minecraft, senza limiti. Tutte le tue versioni, in un unico launcher.")
         
-        # Hero Banner principale (Come da concept)
+        # Hero Banner principale
         hero = QFrame()
         hero.setObjectName("Hero")
         hero.setStyleSheet("""
@@ -814,4 +814,56 @@ class MainWindow(QMainWindow):
         self.login_worker.finished.connect(self.login_finished)
         self.login_worker.start()
 
-    def login_success(self, profile
+    def login_success(self, profile):
+        self.account = profile
+        self.login_status.setText(f'Connesso come {profile.get("name","Minecraft player")}')
+        self.update_account_ui()
+        QMessageBox.information(self, "Accesso completato", f'Benvenuto, {profile.get("name","Minecraft player")}!')
+
+    def login_failed(self, message):
+        self.login_status.setText("Accesso non completato.")
+        QMessageBox.warning(self, "Login Microsoft", message)
+
+    def login_finished(self):
+        self.login_button.setEnabled(True)
+        self.login_button.setText("Account collegato" if self.account else "Accedi con Microsoft")
+
+    def restore_session(self):
+        client_id = self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID") or DEFAULT_MICROSOFT_CLIENT_ID
+        if not client_id: return
+        token = auth.saved_token(client_id)
+        if not token: return
+        self.login_status.setText("Ripristino sessione Microsoft…")
+        self.session_worker = SessionWorker(client_id, token)
+        self.session_worker.completed.connect(self.session_restored)
+        self.session_worker.failed.connect(lambda _message: self.login_status.setText("Sessione scaduta: accedi di nuovo."))
+        self.session_worker.start()
+
+    def session_restored(self, profile):
+        self.account = profile
+        self.login_status.setText(f'Connesso come {profile.get("name","Minecraft player")}')
+        self.update_account_ui()
+
+    def logout(self):
+        client_id = self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID", "")
+        try: auth.forget(client_id)
+        except Exception as exc: QMessageBox.warning(self, "Logout", str(exc)); return
+        self.account = None
+        self.login_status.setText("Account disconnesso.")
+        self.update_account_ui()
+
+    def set_skin_head(self, label, data):
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            label.setPixmap(pixmap.scaled(36, 36, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+
+    def update_account_ui(self):
+        if self.account:
+            self.account_label.setText(self.account.get("name", "cicciook"))
+            if hasattr(self, "logout_button"): self.logout_button.setVisible(True)
+            if hasattr(self, "login_button"): self.login_button.setText("Account collegato")
+        else:
+            name = self.config.get("offline_username", "cicciook")
+            self.account_label.setText(name)
+            if hasattr(self, "logout_button"): self.logout_button.setVisible(False)
+            if hasattr(self, "login_button"): self.login_button.setText("Accedi con Microsoft")
