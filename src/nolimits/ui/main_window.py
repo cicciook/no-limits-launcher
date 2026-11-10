@@ -1,7 +1,9 @@
 import os, json, webbrowser
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QSize
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap, QPainter
+from PySide6.QtCore import QByteArray
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox)
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
@@ -21,6 +23,28 @@ def load_config():
 def save_config(data):
     APP_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+NAV_ART = {
+    "Home": '<path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z"/>',
+    "Catalogo": '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+    "Le mie istanze": '<rect x="4" y="4" width="16" height="5" rx="1"/><rect x="4" y="11" width="16" height="5" rx="1"/><path d="M4 19h16"/>',
+    "Console": '<path d="m5 6 6 6-6 6M13 18h6"/>',
+    "Mod": '<circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7"/>',
+    "Shader": '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7z"/>',
+    "Resource Pack": '<path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5"/>',
+    "Impostazioni": '<circle cx="12" cy="12" r="3"/><path d="m19 13 2-1-2-1-.7-2 1-2-2-2-2 1-2-.7-1-2-1 2-2 .7-2-1-2 2 1 2-.7 2-2 1 2 1 .7 2-1 2 2 2 2-1 2 .7 1 2 1-2 2-.7 2 1 2-2-1-2z"/>',
+    "Account": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    "Info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'
+}
+def make_nav_icon(name):
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24"><g fill="none" stroke="#9b8cff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{NAV_ART[name]}</g><circle cx="12" cy="12" r="11" fill="none" stroke="#33477e" stroke-width=".7"/></svg>'
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return QIcon(pixmap)
 
 class SearchWorker(QThread):
     completed = Signal(list); failed = Signal(str)
@@ -92,8 +116,8 @@ class MainWindow(QMainWindow):
         brand=QLabel("Ｎ  NO LIMITS"); brand.setObjectName("Brand"); side.addWidget(brand)
         sub=QLabel("M I N E C R A F T   L A U N C H E R"); sub.setObjectName("BrandAccent"); side.addWidget(sub); side.addSpacing(24)
         self.nav_buttons={}; self.stack=QStackedWidget()
-        for label,icon in [("Home","⌂"),("Catalogo","▦"),("Le mie istanze","▤"),("Console","▣"),("Mod","✥"),("Shader","◇"),("Resource Pack","▣"),("Impostazioni","⚙"),("Account","♙"),("Info","ⓘ")]:
-            btn=QPushButton(f"{icon}   {label}"); btn.setObjectName("Nav"); btn.setProperty("active",label=="Home"); btn.clicked.connect(lambda checked=False,n=label:self.navigate(n)); side.addWidget(btn); self.nav_buttons[label]=btn
+        for label in ["Home","Catalogo","Le mie istanze","Console","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
+            btn=QPushButton("   "+label); btn.setIcon(make_nav_icon(label)); btn.setIconSize(QSize(26,26)); btn.setObjectName("Nav"); btn.setProperty("active",label=="Home"); btn.clicked.connect(lambda checked=False,n=label:self.navigate(n)); side.addWidget(btn); self.nav_buttons[label]=btn
         side.addStretch()
         self.account_label=QLabel("●  Account non collegato"); self.account_label.setObjectName("Muted"); side.addWidget(self.account_label)
         outer.addWidget(self.sidebar); outer.addWidget(self.stack,1)
