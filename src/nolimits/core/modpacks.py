@@ -24,7 +24,7 @@ def _safe_name(value: str) -> str:
     return value[:48] or "Modpack"
 
 
-def install_modrinth_project(project_id: str, display_name: str, progress=None) -> dict:
+def install_modrinth_project(project_id: str, display_name: str, progress=None, icon_url: str | None = None) -> dict:
     report = progress or (lambda _value, _message: None)
     response = requests.get(f"{API}/project/{project_id}/version", headers=HEADERS, timeout=30)
     response.raise_for_status()
@@ -74,7 +74,7 @@ def install_modrinth_project(project_id: str, display_name: str, progress=None) 
     )
     launch_version = minecraft_launcher_lib.mrpack.get_mrpack_launch_version(str(archive))
     item = store.add_instance(name, info.get("minecraftVersion", "sconosciuta"), "modpack")
-    item.update({"directory": str(instance_dir), "archive": str(archive), "launch_version": launch_version, "source": "modrinth", "project_id": project_id, "project_version_id": selected["id"], "icon_url": None, "status": "installed"})
+    item.update({"directory": str(instance_dir), "archive": str(archive), "launch_version": launch_version, "source": "modrinth", "project_id": project_id, "project_version_id": selected["id"], "icon_url": icon_url, "status": "installed"})
     store.update_instance(item["id"], item)
     report(100, "Installazione completata.")
     return item
