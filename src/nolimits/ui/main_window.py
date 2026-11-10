@@ -115,4 +115,7 @@ class LaunchWorker(QThread):
                 for line in process.stdout:
                     self.output.emit(line.rstrip())
             code=process.wait()
-            self.output.emit
+            self.output.emit(f"Processo Minecraft terminato (exit code {code}).")
+            self.completed.emit()
+        except Exception as exc: self.failed.emit(str(exc))
+
