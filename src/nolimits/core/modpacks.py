@@ -131,6 +131,11 @@ def search_modrinth_content(
         "description": hit.get("description", ""), "author": hit.get("author", "Unknown"),
         "downloads": hit.get("downloads", 0), "icon_url": hit.get("icon_url"),
         "slug": hit.get("slug", ""), "project_type": content_type,
+        "versions": hit.get("versions", []),
+        "project_url": (
+            f"https://modrinth.com/{content_type}/{hit.get('slug')}"
+            if hit.get("slug") else f"https://modrinth.com/project/{hit.get('project_id')}"
+        ),
     } for hit in response.json().get("hits", [])]
 
 
