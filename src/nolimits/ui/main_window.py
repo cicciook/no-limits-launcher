@@ -1,6 +1,6 @@
 import os, json, webbrowser
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QSize
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar)
 from nolimits.providers.modrinth import ModrinthProvider
@@ -180,7 +180,7 @@ class MainWindow(QMainWindow):
                 f'{description}'
             )
             item.setData(Qt.ItemDataRole.UserRole,pack)
-            item.setSizeHint(QPixmap(1,88).size())
+            item.setSizeHint(QSize(0,88))
             self.results.addItem(item)
             cover=pack.get("icon_url")
             if cover:
