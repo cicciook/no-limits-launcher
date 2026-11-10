@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
     def login_failed(self,message):
         self.login_status.setText("Accesso non completato."); QMessageBox.warning(self,"Login Microsoft",message)
 
-    def login_finished(self): self.login_button.setEnabled(True); self.login_button.setText("Accedi con Microsoft")
+    def login_finished(self): self.login_button.setEnabled(True); self.login_button.setText("Account collegato" if self.account else "Accedi con Microsoft")
 
 
     def restore_session(self):
