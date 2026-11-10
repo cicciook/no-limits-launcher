@@ -10,7 +10,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame,
-    QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox
+    QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox, QTabWidget
 )
 
 from nolimits.providers.modrinth import ModrinthProvider
@@ -22,7 +22,21 @@ from .theme import DARK_STYLE
 APP_DIR = Path.home() / ".no-limits-launcher"
 CONFIG_FILE = APP_DIR / "config.json"
 DEFAULT_MICROSOFT_CLIENT_ID = "2055c8b7-8738-4ee0-a152-bc724edd35c4"
-LOGO_PATH = Path("src/nolimits/ui/logo.png")
+
+# Ricerca dinamica del file Logo del launcher
+def find_logo_path():
+    candidates = [
+        Path(__file__).parent / "logo.png",
+        Path(__file__).parent / "logo.svg",
+        Path("src/nolimits/ui/logo.png"),
+        Path("logo.png")
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+LOGO_PATH = find_logo_path()
 
 def load_config():
     APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,9 +57,7 @@ NAV_ART = {
     "Mod": '<path d="M9 4a2 2 0 1 1 4 0v2h3a2 2 0 0 1 2 2v3h2a2 2 0 1 1 0 4h-2v3a2 2 0 0 1-2 2h-3v-2a2 2 0 1 0-4 0v2H6a2 2 0 0 1-2-2v-3h2a2 2 0 1 0 0-4H4V8a2 2 0 0 1 2-2h3z"/>',
     "Shader": '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7z"/>',
     "Resource Pack": '<path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5"/>',
-    "Impostazioni": '<circle cx="12" cy="12" r="3"/><path d="m19 13 2-1-2-1-.7-2 1-2-2-2-2 1-2-.7-1-2-1 2-2 .7-2-1-2 2 1 2-.7 2-2 1 2 1 .7 2-1 2 2 2 2-1 2 .7 1 2 1-2 2-.7 2 1 2-2-1-2z"/>',
-    "Account": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
-    "Info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'
+    "Impostazioni": '<circle cx="12" cy="12" r="3"/><path d="m19 13 2-1-2-1-.7-2 1-2-2-2-2 1-2-.7-1-2-1 2-2 .7-2-1-2 2 1 2-.7 2-2 1 2 1 .7 2-1 2 2 2 2-1 2 .7 1 2 1-2 2-.7 2 1 2-2-1-2z"/>'
 }
 
 def make_nav_icon(name):
@@ -66,8 +78,8 @@ class SkinHeadWorker(QThread):
     def run(self):
         import requests
         try:
-            url = f"https://crafthead.net/helm/{self.username}/32"
-            res = requests.get(url, timeout=5)
+            url = f"https://crafthead.net/helm/{self.username}/64"
+            res = requests.get(url, timeout=6)
             if res.status_code == 200:
                 self.loaded.emit(res.content)
         except Exception:
@@ -164,12 +176,10 @@ class CoverLabel(QLabel):
             return
         scaled = self._source_pixmap.scaled(
             self.size(),
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        x = max(0, (scaled.width() - self.width()) // 2)
-        y = max(0, (scaled.height() - self.height()) // 2)
-        self.setPixmap(scaled.copy(x, y, self.width(), self.height()))
+        self.setPixmap(scaled)
 
 class SearchWorker(QThread):
     completed = Signal(list)
@@ -340,15 +350,15 @@ class MainWindow(QMainWindow):
         
         self.root.setStyleSheet("""
             QWidget#Root {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d0a1a, stop:0.5 #150f28, stop:1 #0a0714);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0c0a18, stop:0.5 #140e26, stop:1 #090712);
             }
         """)
         
         outer = QVBoxLayout(self.root)
         outer.setContentsMargins(20, 16, 20, 16)
-        outer.setSpacing(14)
+        outer.setSpacing(12)
         
-        # BARRA SUPERIORE (Istanze + Navigazione + User Chip + LOGO ESPANSO)
+        # BARRA SUPERIORE (Istanze + Navigazione + LOGO UFFICIALE)
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
         top_bar.setContentsMargins(0, 0, 0, 0)
@@ -378,7 +388,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.top_instance_combo)
         top_bar.addSpacing(6)
 
-        # 2. Pulsanti Navigazione
+        # 2. Pulsanti Navigazione (Account e Info spostati in Impostazioni)
         self.nav_bar = QFrame()
         self.nav_bar.setStyleSheet("background: transparent; border: none;")
         nav_layout = QHBoxLayout(self.nav_bar)
@@ -386,7 +396,7 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(6)
         
         self.nav_buttons = {}
-        for label in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
+        for label in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
             btn = QPushButton(label)
             btn.setObjectName("Nav")
             btn.setCheckable(True)
@@ -397,7 +407,7 @@ class MainWindow(QMainWindow):
                     border: 1px solid rgba(168, 85, 247, 0.25);
                     border-radius: 6px;
                     color: #d8b4fe;
-                    padding: 6px 12px;
+                    padding: 6px 14px;
                     font-weight: 700;
                     font-size: 12px;
                 }
@@ -419,74 +429,103 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.nav_bar)
         top_bar.addStretch()
         
-        # 3. FIX SKIN USER CHIP (Contenitore perfettamente allineato e pulito)
-        self.user_chip = QPushButton()
-        self.user_chip.setFixedHeight(36)
-        self.user_chip.setStyleSheet("""
-            QPushButton {
-                background: rgba(139, 92, 246, 0.15);
-                border: 1px solid rgba(168, 85, 247, 0.35);
-                border-radius: 8px;
-                color: #ffffff;
-                padding: 2px 10px 2px 4px;
-            }
-            QPushButton:hover { background: rgba(139, 92, 246, 0.3); }
-        """)
-        self.user_chip.clicked.connect(lambda: self.navigate("Account"))
-        
-        uc_layout = QHBoxLayout(self.user_chip)
-        uc_layout.setContentsMargins(4, 2, 8, 2)
-        uc_layout.setSpacing(8)
-        
-        # Label dedicata alla skin (icona di default se non ancora caricata)
-        self.skin_head = QLabel("👤")
-        self.skin_head.setFixedSize(28, 28)
-        self.skin_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.skin_head.setStyleSheet("""
-            QLabel {
-                border-radius: 6px;
-                background: #2e1065;
-                color: #c084fc;
-                font-size: 15px;
-                border: 1px solid rgba(168, 85, 247, 0.4);
-            }
-        """)
-        uc_layout.addWidget(self.skin_head)
-        
-        uc_info = QVBoxLayout()
-        uc_info.setSpacing(0)
-        uc_info.setContentsMargins(0, 0, 0, 0)
-        
-        self.account_label = QLabel("cicciook")
-        self.account_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #ffffff; background: transparent; border: none;")
-        self.status_label = QLabel("• Online")
-        self.status_label.setStyleSheet("font-size: 9px; color: #4ade80; background: transparent; border: none;")
-        
-        uc_info.addWidget(self.account_label)
-        uc_info.addWidget(self.status_label)
-        uc_layout.addLayout(uc_info)
-        top_bar.addWidget(self.user_chip)
-        
-        # 4. LOGO UFFICIALE (Sostituisce il testo deformato in alto a destra)
+        # 3. LOGO IN ALTO A DESTRA (Rendering diretto del file o SVG)
         self.logo_label = QLabel()
-        self.logo_label.setFixedSize(170, 48)
-        self.logo_label.setScaledContents(True)
-        if LOGO_PATH.exists():
-            self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)))
+        self.logo_label.setFixedSize(160, 44)
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        if LOGO_PATH and LOGO_PATH.exists():
+            if str(LOGO_PATH).endswith(".svg"):
+                renderer = QSvgRenderer(str(LOGO_PATH))
+                pixmap = QPixmap(160, 44)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.logo_label.setPixmap(pixmap)
+            else:
+                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(160, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
             self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            self.logo_label.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent; border: none;")
+            self.logo_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
+            
         top_bar.addWidget(self.logo_label)
-        
         outer.addLayout(top_bar)
         
-        # Stacked Widget per le schermate
+        # Stacked Widget per le varie schermate
         self.stack = QStackedWidget()
         self.stack.setStyleSheet("background: transparent;")
         outer.addWidget(self.stack, 1)
         
+        # BOTTOM BAR (A sinistra: Skin + Player + Avvio Rapido)
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setContentsMargins(0, 4, 0, 0)
+        
+        self.quick_player_chip = QFrame()
+        self.quick_player_chip.setStyleSheet("""
+            QFrame {
+                background: rgba(24, 18, 43, 0.75);
+                border: 1px solid rgba(168, 85, 247, 0.35);
+                border-radius: 10px;
+            }
+        """)
+        qp_layout = QHBoxLayout(self.quick_player_chip)
+        qp_layout.setContentsMargins(8, 4, 12, 4)
+        qp_layout.setSpacing(10)
+        
+        self.skin_head = QLabel("👤")
+        self.skin_head.setFixedSize(32, 32)
+        self.skin_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.skin_head.setStyleSheet("""
+            QLabel {
+                border-radius: 6px;
+                background: #3b0764;
+                color: #c084fc;
+                font-size: 16px;
+                border: 1px solid rgba(168, 85, 247, 0.4);
+            }
+        """)
+        qp_layout.addWidget(self.skin_head)
+        
+        user_info_box = QVBoxLayout()
+        user_info_box.setSpacing(0)
+        user_info_box.setContentsMargins(0, 0, 0, 0)
+        
+        self.account_label = QLabel("cicciook")
+        self.account_label.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; background: transparent; border: none;")
+        self.status_label = QLabel("• Online")
+        self.status_label.setStyleSheet("font-size: 10px; color: #4ade80; background: transparent; border: none;")
+        
+        user_info_box.addWidget(self.account_label)
+        user_info_box.addWidget(self.status_label)
+        qp_layout.addLayout(user_info_box)
+        
+        qp_layout.addSpacing(6)
+        
+        self.quick_launch_btn = QPushButton("⚡ Avvio rapido")
+        self.quick_launch_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
+                color: #ffffff;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 800;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #9333ea);
+            }
+        """)
+        self.quick_launch_btn.clicked.connect(self.quick_launch_instance)
+        qp_layout.addWidget(self.quick_launch_btn)
+        
+        bottom_bar.addWidget(self.quick_player_chip, 0, Qt.AlignmentFlag.AlignLeft)
+        bottom_bar.addStretch()
+        outer.addLayout(bottom_bar)
+        
         self.pages = {}
-        for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni", "Account", "Info"]:
+        for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
@@ -581,6 +620,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(mr_btn)
         p.layout().addLayout(top_bar)
         
+        # Hero Carousel SENZA RIQUADRI ATTORNO ALL'IMMAGINE
         self.hero_frame = QFrame()
         self.hero_frame.setObjectName("HeroFrame")
         self.hero_frame.setStyleSheet("""
@@ -602,13 +642,10 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(24)
 
+        # Immagine pulita senza box o bordi
         self.hero_cover = CoverLabel("Fabulously Optimized")
-        self.hero_cover.setFixedSize(280, 160)
-        self.hero_cover.setStyleSheet(
-            "font-size: 16px; font-weight: 800; color: #e9d5ff; "
-            "background: rgba(15, 10, 30, 0.7); border-radius: 10px; "
-            "border: 1px solid rgba(168, 85, 247, 0.3);"
-        )
+        self.hero_cover.setFixedSize(260, 150)
+        self.hero_cover.setStyleSheet("background: transparent; border: none;")
         content_layout.addWidget(self.hero_cover)
 
         hero_info = QVBoxLayout()
@@ -656,6 +693,7 @@ class MainWindow(QMainWindow):
             self.dots.append(dot)
         p.layout().addLayout(self.dots_layout)
 
+        # Griglia Modpack SENZA RIQUADRI ATTORNO ALLE IMMAGINI
         grid_header = QHBoxLayout()
         gh_title = QLabel("★ Modpack in evidenza")
         gh_title.setStyleSheet("font-size: 17px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
@@ -695,10 +733,11 @@ class MainWindow(QMainWindow):
             c_box.setContentsMargins(12, 12, 12, 12)
             c_box.setSpacing(8)
             
+            # Immagine totalmente priva di box interno
             c_img = CoverLabel(p_name)
-            c_img.setFixedHeight(120)
+            c_img.setFixedHeight(125)
             c_img.setMinimumWidth(0)
-            c_img.setStyleSheet("background: rgba(46, 16, 101, 0.5); border-radius: 8px; font-weight: 800; color: #c084fc; font-size: 13px; border: none;")
+            c_img.setStyleSheet("background: transparent; border: none;")
             
             c_title = QLabel(p_name)
             c_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #ffffff;")
@@ -965,48 +1004,87 @@ class MainWindow(QMainWindow):
             ("Mod", "Gestione delle mod per ogni istanza."),
             ("Shader", "Gestisci shader pack e impostazioni grafiche."),
             ("Resource Pack", "Organizza texture e resource pack."),
-            ("Impostazioni", "Percorsi Java, memoria RAM, lingua e preferenze."),
-            ("Account", "Accedi con il tuo account Microsoft per giocare a Minecraft."),
-            ("Info", "No Limits Launcher — un launcher indipendente, in sviluppo.")
+            ("Impostazioni", "Configura account, risorse di sistema e informazioni sul launcher.")
         ]:
-            self.page_header(name, name, desc)
-            if name == "Account":
-                card, box = self.panel("Account Microsoft", "Autenticazione ufficiale tramite Device Code Flow.")
-                self.login_status = QLabel("Non hai ancora collegato un account.")
-                self.login_status.setObjectName("Muted")
-                box.addWidget(self.login_status)
-                offline, offline_box = self.panel("Modalità offline", "Avvia Minecraft senza account Microsoft usando un nome locale.")
-                self.offline_name_input = QLineEdit()
-                self.offline_name_input.setPlaceholderText("Nome giocatore (es. Steve)")
-                self.offline_name_input.setText(self.config.get("offline_username", ""))
-                self.offline_name_input.textChanged.connect(self.save_offline_name)
-                offline_box.addWidget(self.offline_name_input)
-                p = self.pages[name]
-                p.layout().addWidget(offline)
-                self.login_button = QPushButton("Accedi con Microsoft")
-                self.login_button.setObjectName("Primary")
-                self.login_button.clicked.connect(self.start_login)
-                box.addWidget(self.login_button, 0, Qt.AlignmentFlag.AlignLeft)
-                self.logout_button = QPushButton("Disconnetti account")
-                self.logout_button.clicked.connect(self.logout)
-                self.logout_button.setVisible(False)
-                box.addWidget(self.logout_button, 0, Qt.AlignmentFlag.AlignLeft)
-                p.layout().addWidget(card)
-                p.layout().addStretch()
+            if name == "Impostazioni":
+                self.build_settings_page()
             elif name in ("Mod", "Shader", "Resource Pack"):
+                self.page_header(name, name, desc)
                 kind = {"Mod": "mod", "Shader": "shader", "Resource Pack": "resourcepack"}[name]
                 self.build_content_page(name, kind)
-            elif name == "Impostazioni":
-                card, box = self.panel("Preferenze launcher", "Le impostazioni dell'account Microsoft sono gestite automaticamente.")
-                b = QPushButton("Apri account")
-                b.clicked.connect(lambda: self.navigate("Account"))
-                box.addWidget(b, 0, Qt.AlignmentFlag.AlignLeft)
-                self.pages[name].layout().addWidget(card)
-                self.pages[name].layout().addStretch()
-            else:
-                card, box = self.panel("In sviluppo", desc + " Questa sezione è già predisposta nell'interfaccia.")
-                self.pages[name].layout().addWidget(card)
-                self.pages[name].layout().addStretch()
+
+    # COSTRUZIONE PAGINA IMPOSTAZIONI (Con Account e Info integrati)
+    def build_settings_page(self):
+        p = self.pages["Impostazioni"]
+        self.page_header("Impostazioni", "Impostazioni Launcher", "Gestisci il tuo profilo, l'account Microsoft e le opzioni di sistema.")
+        
+        tabs = QTabWidget()
+        tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid rgba(168, 85, 247, 0.3);
+                border-radius: 10px;
+                background: rgba(20, 14, 36, 0.6);
+            }
+            QTabBar::tab {
+                background: rgba(255, 255, 255, 0.05);
+                color: #d8b4fe;
+                padding: 8px 18px;
+                font-weight: 700;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 4px;
+            }
+            QTabBar::tab:selected {
+                background: #8b5cf6;
+                color: #ffffff;
+            }
+        """)
+        
+        # Tab 1: Account
+        account_tab = QWidget()
+        at_layout = QVBoxLayout(account_tab)
+        at_layout.setContentsMargins(16, 16, 16, 16)
+        at_layout.setSpacing(12)
+        
+        card, box = self.panel("Account Microsoft", "Autenticazione ufficiale tramite Device Code Flow.")
+        self.login_status = QLabel("Non hai ancora collegato un account.")
+        self.login_status.setObjectName("Muted")
+        box.addWidget(self.login_status)
+        
+        self.login_button = QPushButton("Accedi con Microsoft")
+        self.login_button.setObjectName("Primary")
+        self.login_button.clicked.connect(self.start_login)
+        box.addWidget(self.login_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        self.logout_button = QPushButton("Disconnetti account")
+        self.logout_button.clicked.connect(self.logout)
+        self.logout_button.setVisible(False)
+        box.addWidget(self.logout_button, 0, Qt.AlignmentFlag.AlignLeft)
+        at_layout.addWidget(card)
+        
+        offline, offline_box = self.panel("Modalità offline", "Avvia Minecraft senza account Microsoft usando un nome locale.")
+        self.offline_name_input = QLineEdit()
+        self.offline_name_input.setPlaceholderText("Nome giocatore (es. Steve)")
+        self.offline_name_input.setText(self.config.get("offline_username", "cicciook"))
+        self.offline_name_input.textChanged.connect(self.save_offline_name)
+        offline_box.addWidget(self.offline_name_input)
+        at_layout.addWidget(offline)
+        at_layout.addStretch()
+        
+        # Tab 2: Info Launcher
+        info_tab = QWidget()
+        it_layout = QVBoxLayout(info_tab)
+        it_layout.setContentsMargins(16, 16, 16, 16)
+        
+        info_card, info_box = self.panel("No Limits Launcher v0.3.0", "Un launcher moderno, indipendente ed estensibile per Minecraft.")
+        info_box.addWidget(QLabel("Sviluppato con PySide6 e Python.\nSupporta modpack Modrinth, istanze isolate e avvio con Java nativo."))
+        it_layout.addWidget(info_card)
+        it_layout.addStretch()
+        
+        tabs.addTab(account_tab, "Account & Profilo")
+        tabs.addTab(info_tab, "Info & Versione")
+        
+        p.layout().addWidget(tabs)
 
     def build_content_page(self, page_name, kind):
         page = self.pages[page_name]
@@ -1350,13 +1428,26 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, 'Seleziona un\'istanza', 'Seleziona prima un\'istanza installata.')
             return
         instance = instances[row]
+        self._exec_launch_instance(instance)
+
+    def quick_launch_instance(self):
+        instance = self.top_instance_combo.currentData()
+        instances = self.store.list_instances()
+        if not instance and instances:
+            instance = instances[0]
+        if not instance:
+            QMessageBox.information(self, 'Nessuna istanza', 'Crea o installa prima un\'istanza di Minecraft.')
+            return
+        self._exec_launch_instance(instance)
+
+    def _exec_launch_instance(self, instance):
         if instance.get('status') != 'installed':
-            QMessageBox.information(self, 'Non installata', 'Questa istanza non è ancora installabile.')
+            QMessageBox.information(self, 'Non installata', 'Questa istanza non è ancora pronta o installata.')
             return
         offline_name = self.offline_name_input.text().strip() if hasattr(self, "offline_name_input") else ""
         if not self.account and not offline_name:
-            QMessageBox.warning(self, "Nome giocatore mancante", "Scegli un nome offline nella pagina Account, oppure accedi con Microsoft.")
-            self.navigate("Account")
+            QMessageBox.warning(self, "Nome giocatore mancante", "Scegli un nome offline nelle Impostazioni, oppure accedi con Microsoft.")
+            self.navigate("Impostazioni")
             return
         self.launch_worker = LaunchWorker(instance, self.account, offline_name)
         self.launch_worker.output.connect(self.log_console)
@@ -1445,15 +1536,6 @@ class MainWindow(QMainWindow):
             self.account_label.setText(val if val else "cicciook")
             self.load_skin_head(val if val else "cicciook")
 
-    def save_client_id(self):
-        value = self.client_id_input.text().strip()
-        if not value:
-            QMessageBox.warning(self, "Client ID mancante", "Inserisci il Client ID pubblico dell'app Microsoft.")
-            return
-        self.config["microsoft_client_id"] = value
-        save_config(self.config)
-        QMessageBox.information(self, "Configurazione salvata", "Client ID salvato localmente.")
-
     def start_login(self):
         client_id = self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID") or DEFAULT_MICROSOFT_CLIENT_ID
         if not client_id:
@@ -1518,7 +1600,7 @@ class MainWindow(QMainWindow):
     def set_skin_head(self, data):
         pixmap = QPixmap()
         if pixmap.loadFromData(data):
-            self.skin_head.setPixmap(pixmap.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.skin_head.setPixmap(pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             self.skin_head.setText("")
 
     def update_account_ui(self):
