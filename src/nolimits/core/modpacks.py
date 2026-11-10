@@ -109,13 +109,15 @@ def launch_instance(instance: dict, profile: dict | None = None, offline_usernam
     return subprocess.Popen(command, **kwargs)
 
 
-def search_modrinth_content(query: str, content_type: str, limit: int = 60) -> list[dict]:
+def search_modrinth_content(query: str, content_type: str, limit: int = 60, sort: str = "follows") -> list[dict]:
     if content_type not in ("mod", "shader"):
         raise ValueError("Tipo di contenuto non supportato.")
+    if sort not in ("relevance", "follows", "downloads", "updated"):
+        raise ValueError("Ordinamento Modrinth non supportato.")
     params = {
         "query": query.strip(),
         "limit": max(1, min(limit, 100)),
-        "index": "downloads" if not query.strip() else "relevance",
+        "index": sort if not query.strip() else ("relevance" if sort == "relevance" else sort),
         "facets": __import__("json").dumps([[f"project_type:{content_type}"]]),
     }
     response = requests.get(f"{API}/search", params=params, headers=HEADERS, timeout=30)
