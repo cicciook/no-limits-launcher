@@ -73,13 +73,24 @@ class HeroDataWorker(QThread):
         provider = ModrinthProvider()
         for key, config in self.pack_queries.items():
             try:
-                results = provider.search_modpacks(config["query"], limit=30)
-                expected = self._normalise(config["title"])
-                # Only use the exact Modrinth project. Never substitute a
-                # similarly named project or a gallery screenshot.
+                # Search broadly: Modrinth titles often differ slightly from
+                # the display name used by the launcher (punctuation, edition,
+                # or the FTB prefix). Match only explicitly approved aliases.
+                results = provider.search_modpacks(config["query"], limit=100)
+                expected_titles = {
+                    self._normalise(config["title"]),
+                    *(self._normalise(value) for value in config.get("title_aliases", [])),
+                }
+                expected_slugs = {
+                    value.lower().strip()
+                    for value in config.get("slug_aliases", [])
+                }
                 pack = next(
-                    (item for item in results
-                     if self._normalise(item.get("title", "")) == expected),
+                    (
+                        item for item in results
+                        if self._normalise(item.get("title", "")) in expected_titles
+                        or item.get("slug", "").lower().strip() in expected_slugs
+                    ),
                     None,
                 )
                 if not pack:
@@ -705,13 +716,34 @@ class MainWindow(QMainWindow):
 
     def load_modrinth_images(self):
         queries = {
-            "All the mods 9": {"query": "All the Mods 9", "title": "All The Mods 9"},
-            "RLCraft": {"query": "RLCraft", "title": "RLCraft"},
-            "SkyFactory 4": {"query": "SkyFactory 4", "title": "SkyFactory 4"},
-            "OceanBlock": {"query": "OceanBlock", "title": "FTB OceanBlock 2"},
+            "All the mods 9": {
+                "query": "All the Mods 9",
+                "title": "All The Mods 9",
+                "title_aliases": ["All the Mods 9"],
+                "slug_aliases": ["all-the-mods-9"],
+            },
+            "RLCraft": {
+                "query": "RLCraft",
+                "title": "RLCraft",
+                "slug_aliases": ["rlcraft"],
+            },
+            "SkyFactory 4": {
+                "query": "SkyFactory 4",
+                "title": "SkyFactory 4",
+                "title_aliases": ["Sky Factory 4"],
+                "slug_aliases": ["skyfactory-4"],
+            },
+            "OceanBlock": {
+                "query": "OceanBlock",
+                "title": "FTB OceanBlock 2",
+                "title_aliases": ["OceanBlock 2", "FTB OceanBlock"],
+                "slug_aliases": ["ftb-oceanblock-2", "oceanblock-2"],
+            },
             "Create Above and Beyond": {
                 "query": "Create Above and Beyond",
                 "title": "Create Above & Beyond",
+                "title_aliases": ["Create Above and Beyond", "Create: Above and Beyond"],
+                "slug_aliases": ["create-above-and-beyond"],
             },
         }
 
