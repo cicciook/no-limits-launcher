@@ -167,8 +167,6 @@ class MainWindow(QMainWindow):
             if name=="Account":
                 card,box=self.panel("Account Microsoft","Autenticazione ufficiale tramite Device Code Flow. Non chiediamo né memorizziamo la password Microsoft.")
                 self.login_status=QLabel("Non hai ancora collegato un account."); self.login_status.setObjectName("Muted"); box.addWidget(self.login_status)
-                self.client_id_input=QLineEdit(); self.client_id_input.setPlaceholderText("Microsoft Application (Client) ID"); self.client_id_input.setText(self.config.get("microsoft_client_id",os.getenv("NO_LIMITS_MSA_CLIENT_ID",DEFAULT_MICROSOFT_CLIENT_ID))); box.addWidget(self.client_id_input)
-                save=QPushButton("Salva Client ID"); save.clicked.connect(self.save_client_id); box.addWidget(save,0,Qt.AlignmentFlag.AlignLeft)
                 offline,offline_box=self.panel("Modalità offline","Avvia Minecraft senza account Microsoft usando un nome locale. I server premium e quelli online-mode=true richiedono comunque autenticazione ufficiale.")
                 self.offline_name_input=QLineEdit(); self.offline_name_input.setPlaceholderText("Nome giocatore (es. Steve)"); self.offline_name_input.setText(self.config.get("offline_username",""))
                 self.offline_name_input.textChanged.connect(self.save_offline_name)
@@ -178,8 +176,8 @@ class MainWindow(QMainWindow):
                 self.logout_button=QPushButton("Disconnetti account"); self.logout_button.clicked.connect(self.logout); self.logout_button.setVisible(False); box.addWidget(self.logout_button,0,Qt.AlignmentFlag.AlignLeft)
                 p=self.pages[name]; p.layout().addWidget(card); p.layout().addStretch()
             elif name=="Impostazioni":
-                card,box=self.panel("Configurazione Microsoft","Inserisci il Client ID pubblico dell'app registrata in Microsoft Entra. Non inserire un client secret.")
-                b=QPushButton("Configura account Microsoft"); b.clicked.connect(lambda:self.navigate("Account")); box.addWidget(b,0,Qt.AlignmentFlag.AlignLeft); self.pages[name].layout().addWidget(card); self.pages[name].layout().addStretch()
+                card,box=self.panel("Preferenze launcher","Le impostazioni dell'account Microsoft sono gestite automaticamente dal launcher.")
+                b=QPushButton("Apri account"); b.clicked.connect(lambda:self.navigate("Account")); box.addWidget(b,0,Qt.AlignmentFlag.AlignLeft); self.pages[name].layout().addWidget(card); self.pages[name].layout().addStretch()
             else:
                 card,box=self.panel("In sviluppo",desc+" Questa sezione è già predisposta nell'interfaccia; la gestione completa arriverà nei prossimi aggiornamenti.")
                 self.pages[name].layout().addWidget(card); self.pages[name].layout().addStretch()
@@ -292,8 +290,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,"Configurazione salvata","Client ID salvato localmente.")
 
     def start_login(self):
-        client_id=self.client_id_input.text().strip() or os.getenv("NO_LIMITS_MSA_CLIENT_ID","")
-        if not client_id: QMessageBox.warning(self,"Login non configurato","Inserisci il Client ID Microsoft nella pagina Account e salvalo."); return
+        client_id=self.config.get("microsoft_client_id") or os.getenv("NO_LIMITS_MSA_CLIENT_ID") or DEFAULT_MICROSOFT_CLIENT_ID
+        if not client_id: QMessageBox.warning(self,"Login non configurato","Accesso Microsoft non configurato in questa build."); return
         self.config["microsoft_client_id"]=client_id; save_config(self.config)
         self.login_button.setEnabled(False); self.login_button.setText("Attendo Microsoft…"); self.login_status.setText("Apro la pagina di accesso Microsoft…")
         self.login_worker=LoginWorker(client_id); self.login_worker.progress.connect(self.login_status.setText); self.login_worker.completed.connect(self.login_success); self.login_worker.failed.connect(self.login_failed); self.login_worker.finished.connect(self.login_finished); self.login_worker.start()
