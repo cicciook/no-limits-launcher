@@ -109,14 +109,18 @@ def launch_instance(instance: dict, profile: dict | None = None, offline_usernam
     return subprocess.Popen(command, **kwargs)
 
 
-def search_modrinth_content(query: str, content_type: str, limit: int = 60, sort: str = "follows") -> list[dict]:
-    if content_type not in ("mod", "shader"):
+def search_modrinth_content(
+    query: str, content_type: str, limit: int = 50,
+    sort: str = "follows", offset: int = 0,
+) -> list[dict]:
+    if content_type not in ("mod", "shader", "resourcepack"):
         raise ValueError("Tipo di contenuto non supportato.")
     if sort not in ("relevance", "follows", "downloads", "updated"):
         raise ValueError("Ordinamento Modrinth non supportato.")
     params = {
         "query": query.strip(),
         "limit": max(1, min(limit, 100)),
+        "offset": max(0, int(offset)),
         "index": sort if not query.strip() else ("relevance" if sort == "relevance" else sort),
         "facets": __import__("json").dumps([[f"project_type:{content_type}"]]),
     }
@@ -135,7 +139,7 @@ def install_modrinth_content(instance: dict, project_id: str, content_type: str,
     import json
     from urllib.parse import urlparse
     report = progress or (lambda _value, _message: None)
-    if content_type not in ("mod", "shader"):
+    if content_type not in ("mod", "shader", "resourcepack"):
         raise ValueError("Tipo di contenuto non supportato.")
     game_dir = Path(instance.get("directory", ""))
     if not game_dir.is_dir():
@@ -155,7 +159,8 @@ def install_modrinth_content(instance: dict, project_id: str, content_type: str,
     file_info = next((f for f in selected.get("files", []) if f.get("primary")), None) or (selected.get("files") or [None])[0]
     if not file_info or not file_info.get("url"):
         raise RuntimeError("Modrinth non ha fornito un file scaricabile.")
-    folder = game_dir / ("mods" if content_type == "mod" else "shaderpacks")
+    folder_name = {"mod": "mods", "shader": "shaderpacks", "resourcepack": "resourcepacks"}[content_type]
+    folder = game_dir / folder_name
     folder.mkdir(parents=True, exist_ok=True)
     filename = Path(urlparse(file_info["url"]).path).name or file_info.get("filename") or f"{project_id}.jar"
     destination = folder / filename
