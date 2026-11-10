@@ -165,14 +165,17 @@ class SearchWorker(QThread):
             self.failed.emit(str(exc))
 
 class ContentSearchWorker(QThread):
-    completed = Signal(list)
+    completed = Signal(list, int)
     failed = Signal(str)
-    def __init__(self, query, kind, sort="follows"):
+    def __init__(self, query, kind, sort="follows", offset=0):
         super().__init__()
-        self.query, self.kind, self.sort = query, kind, sort
+        self.query, self.kind, self.sort, self.offset = query, kind, sort, offset
     def run(self):
         try:
-            self.completed.emit(search_modrinth_content(self.query, self.kind, sort=self.sort))
+            projects = search_modrinth_content(
+                self.query, self.kind, limit=50, sort=self.sort, offset=self.offset
+            )
+            self.completed.emit(projects, self.offset)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -891,8 +894,9 @@ class MainWindow(QMainWindow):
                 box.addWidget(self.logout_button, 0, Qt.AlignmentFlag.AlignLeft)
                 p.layout().addWidget(card)
                 p.layout().addStretch()
-            elif name in ("Mod", "Shader"):
-                self.build_content_page(name, "mod" if name == "Mod" else "shader")
+            elif name in ("Mod", "Shader", "Resource Pack"):
+                kind = {"Mod": "mod", "Shader": "shader", "Resource Pack": "resourcepack"}[name]
+                self.build_content_page(name, kind)
             elif name == "Impostazioni":
                 card, box = self.panel("Preferenze launcher", "Le impostazioni dell'account Microsoft sono gestite automaticamente dal launcher.")
                 b = QPushButton("Apri account")
@@ -907,6 +911,13 @@ class MainWindow(QMainWindow):
 
     def build_content_page(self, page_name, kind):
         page = self.pages[page_name]
+        if not hasattr(self, "content_offsets"):
+            self.content_offsets, self.content_has_more = {}, {}
+            self.content_loading, self.content_seen = {}, {}
+        self.content_offsets[kind] = 0
+        self.content_has_more[kind] = True
+        self.content_loading[kind] = False
+        self.content_seen[kind] = set()
         row = QHBoxLayout()
         selector = QComboBox()
         selector.setMinimumWidth(220)
@@ -937,6 +948,9 @@ class MainWindow(QMainWindow):
         results.setIconSize(QSize(56, 56))
         if not hasattr(self, "content_lists"): self.content_lists = {}
         self.content_lists[kind] = results
+        results.verticalScrollBar().valueChanged.connect(
+            lambda value, k=kind: self.maybe_load_more_content(k, value)
+        )
         page.layout().addWidget(results, 1)
         progress = QProgressBar()
         if not hasattr(self, "content_bars"): self.content_bars = {}
@@ -965,29 +979,66 @@ class MainWindow(QMainWindow):
 
     def search_content(self, kind):
         self.content_lists[kind].clear()
+        self.content_offsets[kind] = 0
+        self.content_has_more[kind] = True
+        self.content_loading[kind] = False
+        self.content_seen[kind] = set()
         self.content_labels[kind].setText("Ricerca su Modrinth…")
+        self.load_more_content(kind)
+
+    def maybe_load_more_content(self, kind, value):
+        bar = self.content_lists[kind].verticalScrollBar()
+        if bar.maximum() > 0 and value >= bar.maximum() - 160:
+            self.load_more_content(kind)
+
+    def load_more_content(self, kind):
+        if self.content_loading.get(kind, False) or not self.content_has_more.get(kind, True):
+            return
+        self.content_loading[kind] = True
         sort = self.mod_sort.currentData() if kind == "mod" and hasattr(self, "mod_sort") else "downloads"
-        worker = ContentSearchWorker(self.content_queries[kind].text().strip(), kind, sort)
+        worker = ContentSearchWorker(
+            self.content_queries[kind].text().strip(), kind, sort,
+            offset=self.content_offsets.get(kind, 0)
+        )
         if not hasattr(self, "content_workers"): self.content_workers = []
         self.content_workers.append(worker)
-        worker.completed.connect(lambda projects, k=kind: self.show_content_results(k, projects))
-        worker.failed.connect(lambda message, k=kind: self.content_labels[k].setText(message))
+        worker.completed.connect(lambda projects, offset, k=kind: self.show_content_results(k, projects, offset))
+        worker.failed.connect(lambda message, k=kind: self.content_search_failed(k, message))
         worker.finished.connect(lambda w=worker: self.content_workers.remove(w) if w in self.content_workers else None)
         worker.start()
 
-    def show_content_results(self, kind, projects):
+    def content_search_failed(self, kind, message):
+        self.content_loading[kind] = False
+        self.content_labels[kind].setText("Errore di ricerca: " + message)
+
+    def show_content_results(self, kind, projects, offset):
+        seen = self.content_seen[kind]
+        added = 0
         for project in projects:
-            text = "{}\n{} • {:,} download".format(project.get("title", "Contenuto"), project.get("author", ""), project.get("downloads", 0))
+            project_id = project.get("id")
+            if not project_id or project_id in seen:
+                continue
+            seen.add(project_id)
+            text = "{}\\n{} • {:,} download".format(project.get("title", "Contenuto"), project.get("author", ""), project.get("downloads", 0))
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, project)
             self.content_lists[kind].addItem(item)
+            added += 1
             if project.get("icon_url"):
                 worker = CoverWorker(item, project["icon_url"])
                 worker.loaded.connect(self.set_pack_cover)
                 self.cover_workers.append(worker)
                 worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
                 worker.start()
-        self.content_labels[kind].setText("{} risultati".format(len(projects)))
+        self.content_offsets[kind] = offset + len(projects)
+        self.content_has_more[kind] = len(projects) == 50
+        self.content_loading[kind] = False
+        count = self.content_lists[kind].count()
+        suffix = " • scorri per caricarne altri" if self.content_has_more[kind] else ""
+        self.content_labels[kind].setText("{} risultati{}".format(count, suffix))
+        bar = self.content_lists[kind].verticalScrollBar()
+        if self.content_has_more[kind] and (added == 0 or bar.maximum() <= 0):
+            self.load_more_content(kind)
 
     def install_selected_content(self, kind):
         item = self.content_lists[kind].currentItem()
@@ -1012,7 +1063,7 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
         if name == "Le mie istanze": self.refresh_instances()
-        if name in ("Mod", "Shader"): self.refresh_content_instances()
+        if name in ("Mod", "Shader", "Resource Pack"): self.refresh_content_instances()
         if name == "Catalogo" and self.results.count() == 0: self.search_modpacks()
 
     def search_modpacks(self):
