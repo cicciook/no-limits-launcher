@@ -2,7 +2,7 @@ import os, json, webbrowser
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QSize
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox)
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
 from nolimits.core.modpacks import install_modrinth_project, launch_instance
@@ -43,17 +43,26 @@ class CoverWorker(QThread):
             pass
 
 class InstallWorker(QThread):
-    completed = Signal(dict); failed = Signal(str); progress = Signal(str)
+    completed = Signal(dict); failed = Signal(str); progress = Signal(int, str)
     def __init__(self, project_id, title): super().__init__(); self.project_id=project_id; self.title=title
     def run(self):
         try: self.completed.emit(install_modrinth_project(self.project_id,self.title,self.progress.emit))
         except Exception as exc: self.failed.emit(str(exc))
 
 class LaunchWorker(QThread):
-    completed = Signal(); failed = Signal(str)
-    def __init__(self, instance, profile): super().__init__(); self.instance=instance; self.profile=profile
+    completed = Signal(); failed = Signal(str); output = Signal(str)
+    def __init__(self, instance, profile, offline_username=""):
+        super().__init__(); self.instance=instance; self.profile=profile; self.offline_username=offline_username
     def run(self):
-        try: launch_instance(self.instance,self.profile); self.completed.emit()
+        try:
+            process=launch_instance(self.instance,self.profile,self.offline_username)
+            self.output.emit("Minecraft avviato. Output console:")
+            if process.stdout:
+                for line in process.stdout:
+                    self.output.emit(line.rstrip())
+            code=process.wait()
+            self.output.emit(f"Processo Minecraft terminato (exit code {code}).")
+            self.completed.emit()
         except Exception as exc: self.failed.emit(str(exc))
 
 class LoginWorker(QThread):
@@ -83,15 +92,15 @@ class MainWindow(QMainWindow):
         brand=QLabel("Ｎ  NO LIMITS"); brand.setObjectName("Brand"); side.addWidget(brand)
         sub=QLabel("M I N E C R A F T   L A U N C H E R"); sub.setObjectName("BrandAccent"); side.addWidget(sub); side.addSpacing(24)
         self.nav_buttons={}; self.stack=QStackedWidget()
-        for label,icon in [("Home","⌂"),("Catalogo","▦"),("Le mie istanze","▤"),("Mod","✥"),("Shader","◇"),("Resource Pack","▣"),("Impostazioni","⚙"),("Account","♙"),("Info","ⓘ")]:
+        for label,icon in [("Home","⌂"),("Catalogo","▦"),("Le mie istanze","▤"),("Console","▣"),("Mod","✥"),("Shader","◇"),("Resource Pack","▣"),("Impostazioni","⚙"),("Account","♙"),("Info","ⓘ")]:
             btn=QPushButton(f"{icon}   {label}"); btn.setObjectName("Nav"); btn.setProperty("active",label=="Home"); btn.clicked.connect(lambda checked=False,n=label:self.navigate(n)); side.addWidget(btn); self.nav_buttons[label]=btn
         side.addStretch()
         self.account_label=QLabel("●  Account non collegato"); self.account_label.setObjectName("Muted"); side.addWidget(self.account_label)
         outer.addWidget(self.sidebar); outer.addWidget(self.stack,1)
         self.pages={}
-        for name in ["Home","Catalogo","Le mie istanze","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
+        for name in ["Home","Catalogo","Le mie istanze","Console","Mod","Shader","Resource Pack","Impostazioni","Account","Info"]:
             page=QWidget(); page_layout=QVBoxLayout(page); page_layout.setContentsMargins(28,24,28,24); page_layout.setSpacing(16); self.pages[name]=page; self.stack.addWidget(page)
-        self.build_home(); self.build_catalog(); self.build_instances(); self.build_simple_pages(); self.navigate("Home")
+        self.build_home(); self.build_catalog(); self.build_instances(); self.build_console(); self.build_simple_pages(); self.navigate("Home")
         self.update_account_ui(); self.restore_session()
 
     def panel(self, title=None, subtitle=None):
@@ -129,8 +138,23 @@ class MainWindow(QMainWindow):
         self.source=QPushButton("Modrinth  ✓"); self.source.setEnabled(False); row.addWidget(self.source)
         self.search_button=QPushButton("Cerca / più popolari"); self.search_button.setObjectName("Primary"); self.search_button.clicked.connect(self.search_modpacks); row.addWidget(self.search_button); p.layout().addLayout(row)
         self.results=QListWidget(); self.results.setIconSize(QPixmap(112,72).size()); self.results.setSpacing(7); self.results.itemDoubleClicked.connect(self.show_pack_details); p.layout().addWidget(self.results,1)
+        self.install_progress=QProgressBar(); self.install_progress.setRange(0,100); self.install_progress.setValue(0); self.install_progress.setFormat("%p%  •  %v/100"); p.layout().addWidget(self.install_progress)
         actions=QHBoxLayout(); self.install_button=QPushButton("Installa modpack selezionato"); self.install_button.setObjectName("Primary"); self.install_button.clicked.connect(self.install_selected_pack); actions.addWidget(self.install_button); self.install_status=QLabel(""); self.install_status.setObjectName("Muted"); actions.addWidget(self.install_status,1); p.layout().addLayout(actions)
         note=QLabel("Seleziona un risultato e premi Installa: il launcher scarica il pacchetto .mrpack e prepara un'istanza isolata."); note.setObjectName("Muted"); p.layout().addWidget(note)
+
+    def build_console(self):
+        p=self.pages["Console"]; self.page_header("Console","Console di gioco","Log in tempo reale dell'installazione e del processo Minecraft.")
+        self.console_output=QPlainTextEdit(); self.console_output.setReadOnly(True); self.console_output.setPlaceholderText("La console mostrerà qui i log di Minecraft…"); self.console_output.setMaximumBlockCount(5000); p.layout().addWidget(self.console_output,1)
+        row=QHBoxLayout(); clear=QPushButton("Pulisci console"); clear.clicked.connect(self.console_output.clear); row.addWidget(clear); row.addStretch(); p.layout().addLayout(row)
+
+    def log_console(self,message):
+        if hasattr(self,"console_output"):
+            self.console_output.appendPlainText(str(message))
+
+    def install_progress_update(self,value,message):
+        self.install_progress.setValue(max(0,min(100,int(value))))
+        self.install_status.setText(message)
+        self.log_console(f"[INSTALL {value:3d}%] {message}")
 
     def build_instances(self):
         p=self.pages["Le mie istanze"]; self.page_header("Le mie istanze","Le tue installazioni","Ogni istanza avrà cartella, versione Minecraft e mod loader indipendenti.")
@@ -145,6 +169,11 @@ class MainWindow(QMainWindow):
                 self.login_status=QLabel("Non hai ancora collegato un account."); self.login_status.setObjectName("Muted"); box.addWidget(self.login_status)
                 self.client_id_input=QLineEdit(); self.client_id_input.setPlaceholderText("Microsoft Application (Client) ID"); self.client_id_input.setText(self.config.get("microsoft_client_id",os.getenv("NO_LIMITS_MSA_CLIENT_ID",DEFAULT_MICROSOFT_CLIENT_ID))); box.addWidget(self.client_id_input)
                 save=QPushButton("Salva Client ID"); save.clicked.connect(self.save_client_id); box.addWidget(save,0,Qt.AlignmentFlag.AlignLeft)
+                offline,offline_box=self.panel("Modalità offline","Avvia Minecraft senza account Microsoft usando un nome locale. I server premium e quelli online-mode=true richiedono comunque autenticazione ufficiale.")
+                self.offline_name_input=QLineEdit(); self.offline_name_input.setPlaceholderText("Nome giocatore (es. Steve)"); self.offline_name_input.setText(self.config.get("offline_username",""))
+                self.offline_name_input.textChanged.connect(self.save_offline_name)
+                offline_box.addWidget(self.offline_name_input)
+                p=self.pages[name]; p.layout().addWidget(offline)
                 self.login_button=QPushButton("Accedi con Microsoft"); self.login_button.setObjectName("Primary"); self.login_button.clicked.connect(self.start_login); box.addWidget(self.login_button,0,Qt.AlignmentFlag.AlignLeft)
                 self.logout_button=QPushButton("Disconnetti account"); self.logout_button.clicked.connect(self.logout); self.logout_button.setVisible(False); box.addWidget(self.logout_button,0,Qt.AlignmentFlag.AlignLeft)
                 p=self.pages[name]; p.layout().addWidget(card); p.layout().addStretch()
@@ -198,21 +227,21 @@ class MainWindow(QMainWindow):
         item=self.results.currentItem()
         pack=item.data(Qt.ItemDataRole.UserRole) if item else None
         if not pack: QMessageBox.information(self,'Seleziona un modpack','Seleziona prima un risultato Modrinth.'); return
-        self.install_button.setEnabled(False); self.install_status.setText('Preparazione installazione…')
+        self.install_button.setEnabled(False); self.install_progress.setValue(0); self.install_status.setText('Preparazione installazione…')
         self.install_worker=InstallWorker(pack['id'],pack['title'])
-        self.install_worker.progress.connect(self.install_status.setText)
+        self.install_worker.progress.connect(self.install_progress_update)
         self.install_worker.completed.connect(self.install_success)
         self.install_worker.failed.connect(self.install_failed)
         self.install_worker.finished.connect(lambda:self.install_button.setEnabled(True))
         self.install_worker.start()
 
     def install_success(self,instance):
-        self.install_status.setText(f'{instance["name"]} installato.')
+        self.install_progress.setValue(100); self.install_status.setText(f'{instance["name"]} installato.')
         self.refresh_instances()
         QMessageBox.information(self,'Installazione completata',f'{instance["name"]} è stato installato. Vai in Le mie istanze per avviarlo.')
 
     def install_failed(self,message):
-        self.install_status.setText('Installazione non riuscita.')
+        self.install_status.setText('Installazione non riuscita.'); self.log_console(f"[ERRORE INSTALLAZIONE] {message}")
         QMessageBox.warning(self,'Installazione modpack',message)
 
     def launch_selected_instance(self):
@@ -220,9 +249,14 @@ class MainWindow(QMainWindow):
         if row<0 or row>=len(instances): QMessageBox.information(self,'Seleziona un\'istanza','Seleziona prima un\'istanza installata.'); return
         instance=instances[row]
         if instance.get('status')!='installed': QMessageBox.information(self,'Non installata','Questa istanza non è ancora installabile.'); return
-        if not self.account: QMessageBox.warning(self,'Login richiesto','Accedi con Microsoft prima di avviare Minecraft.'); self.navigate('Account'); return
-        self.launch_worker=LaunchWorker(instance,self.account)
-        self.launch_worker.failed.connect(lambda message:QMessageBox.warning(self,'Avvio Minecraft',message))
+        offline_name = self.offline_name_input.text().strip() if hasattr(self,"offline_name_input") else ""
+        if not self.account and not offline_name:
+            QMessageBox.warning(self,"Nome giocatore mancante","Scegli un nome offline nella pagina Account, oppure accedi con Microsoft.")
+            self.navigate("Account"); return
+        self.launch_worker=LaunchWorker(instance,self.account,offline_name)
+        self.launch_worker.output.connect(self.log_console)
+        self.launch_worker.failed.connect(lambda message:(self.log_console("[ERRORE] "+message),QMessageBox.warning(self,"Avvio Minecraft",message)))
+        self.navigate("Console")
         self.launch_worker.start()
 
     def show_pack_details(self,item):
@@ -247,6 +281,9 @@ class MainWindow(QMainWindow):
         self.instance_list.clear()
         for instance in self.store.list_instances():
             self.instance_list.addItem(f'{instance["name"]}  •  Minecraft {instance["minecraft_version"]}  •  {instance["loader"].title()}  •  {instance["status"]}')
+
+    def save_offline_name(self,value):
+        self.config["offline_username"]=value.strip(); save_config(self.config)
 
     def save_client_id(self):
         value=self.client_id_input.text().strip()
