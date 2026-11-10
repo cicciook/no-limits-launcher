@@ -6,7 +6,8 @@ Launcher Minecraft desktop multipiattaforma, in sviluppo, indipendente da Nuovo 
 - Interfaccia desktop scura blu/neon con navigazione laterale ispirata al concept grafico
 - Ricerca modpack tramite API pubblica Modrinth
 - Registro locale per istanze Minecraft indipendenti
-- Login Microsoft Device Code Flow portato da Nuovo Ordine, con Xbox Live, XSTS, profilo Minecraft e refresh token nel portachiavi di sistema
+- Login Microsoft Device Code Flow portato da Nuovo Ordine, con Xbox Live, XSTS, profilo Minecraft, ripristino sessione e logout
+- Refresh token nel portachiavi di sistema con namespace separato dal vecchio launcher
 - Il portachiavi usa un namespace separato: non sovrascrive i token di Nuovo Ordine
 - Provider CurseForge predisposto ma non ancora implementato: richiede API key autorizzata
 
@@ -21,7 +22,7 @@ python -m nolimits
 ```
 
 ## Login Microsoft
-Apri Account, inserisci il Client ID pubblico (Application/Client ID) dell'app Microsoft registrata per account personali, abilita il flusso client pubblico/device code in Microsoft Entra e premi Accedi. Non inserire client secret o password nel launcher. Il Client ID può essere fornito anche tramite variabile d'ambiente `NO_LIMITS_MSA_CLIENT_ID`.
+Apri Account, inserisci il Client ID pubblico (Application/Client ID) dell'app Microsoft registrata per account personali, abilita il flusso client pubblico/device code in Microsoft Entra e premi Accedi. Il Client ID non era presente nel file di configurazione pubblico di Nuovo Ordine, quindi va inserito qui o impostato in NO_LIMITS_MSA_CLIENT_ID. Non inserire client secret o password nel launcher. Il Client ID può essere fornito anche tramite variabile d'ambiente `NO_LIMITS_MSA_CLIENT_ID`.
 
 ## Da completare
 - Ripristino automatico sessione tramite refresh token all'avvio e logout
