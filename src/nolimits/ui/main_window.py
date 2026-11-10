@@ -58,6 +58,21 @@ def make_nav_icon(name):
     painter.end()
     return QIcon(pixmap)
 
+class SkinHeadWorker(QThread):
+    loaded = Signal(bytes)
+    def __init__(self, username):
+        super().__init__()
+        self.username = username
+    def run(self):
+        import requests
+        try:
+            url = f"https://crafthead.net/helm/{self.username}/32"
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                self.loaded.emit(res.content)
+        except Exception:
+            pass
+
 class HeroDataWorker(QThread):
     image_loaded = Signal(str, bytes)
 
@@ -307,10 +322,10 @@ class MainWindow(QMainWindow):
         self.session_worker = None
         self.install_worker = None
         self.launch_worker = None
+        self.skin_worker = None
         self.cover_workers = []
         
         self.hero_index = 0
-        # Modpack selezionati dalla seconda immagine
         self.hero_packs = [
             {"title": "Fabulously Optimized", "desc": "Beautiful graphics, speedy performance and familiar features in a simple package.", "tags": ["Optimization", "Fabric", "Client"], "query": "Fabulously Optimized"},
             {"title": "Zombie Invade 100 Days", "desc": "Same as Forge Labs 100 Days Zombie Apocalypse in new Minecraft.", "tags": ["Combat", "Forge", "Hardcore"], "query": "Zombie Invade 100 Days"},
@@ -323,7 +338,6 @@ class MainWindow(QMainWindow):
         self.root.setObjectName("Root")
         self.setCentralWidget(self.root)
         
-        # Sfondo principale con tema sfumato viola scuro
         self.root.setStyleSheet("""
             QWidget#Root {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d0a1a, stop:0.5 #150f28, stop:1 #0a0714);
@@ -334,11 +348,12 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(14)
         
-        # BARRA SUPERIORE COMPATTA (Istanze + Navigazione + Logo + User)
+        # BARRA SUPERIORE (Istanze + Navigazione + User Chip + LOGO ESPANSO)
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(10)
+        top_bar.setSpacing(12)
+        top_bar.setContentsMargins(0, 0, 0, 0)
         
-        # 1. Selettore Istanze unificato a destra delle categorie
+        # 1. Selettore Istanze
         self.top_instance_combo = QComboBox()
         self.top_instance_combo.setMinimumWidth(180)
         self.top_instance_combo.setStyleSheet("""
@@ -361,10 +376,9 @@ class MainWindow(QMainWindow):
         """)
         top_bar.addWidget(QLabel("<b style='color:#c084fc; font-size:12px;'>Instances:</b>"))
         top_bar.addWidget(self.top_instance_combo)
-        
-        top_bar.addSpacing(10)
+        top_bar.addSpacing(6)
 
-        # 2. Pulsanti di Navigazione (Stile Glassmorphic Viola)
+        # 2. Pulsanti Navigazione
         self.nav_bar = QFrame()
         self.nav_bar.setStyleSheet("background: transparent; border: none;")
         nav_layout = QHBoxLayout(self.nav_bar)
@@ -405,56 +419,68 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.nav_bar)
         top_bar.addStretch()
         
-        # 3. Account User Box
+        # 3. FIX SKIN USER CHIP (Contenitore perfettamente allineato e pulito)
         self.user_chip = QPushButton()
+        self.user_chip.setFixedHeight(36)
         self.user_chip.setStyleSheet("""
             QPushButton {
-                background: rgba(139, 92, 246, 0.12);
-                border: 1px solid rgba(168, 85, 247, 0.3);
+                background: rgba(139, 92, 246, 0.15);
+                border: 1px solid rgba(168, 85, 247, 0.35);
                 border-radius: 8px;
-                padding: 4px 10px;
                 color: #ffffff;
+                padding: 2px 10px 2px 4px;
             }
-            QPushButton:hover { background: rgba(139, 92, 246, 0.25); }
+            QPushButton:hover { background: rgba(139, 92, 246, 0.3); }
         """)
         self.user_chip.clicked.connect(lambda: self.navigate("Account"))
         
         uc_layout = QHBoxLayout(self.user_chip)
         uc_layout.setContentsMargins(4, 2, 8, 2)
-        uc_layout.setSpacing(6)
+        uc_layout.setSpacing(8)
         
-        self.skin_head = QLabel()
-        self.skin_head.setFixedSize(22, 22)
-        self.skin_head.setScaledContents(True)
-        self.skin_head.setStyleSheet("border-radius: 4px; background: #3b0764;")
+        # Label dedicata alla skin (icona di default se non ancora caricata)
+        self.skin_head = QLabel("👤")
+        self.skin_head.setFixedSize(28, 28)
+        self.skin_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.skin_head.setStyleSheet("""
+            QLabel {
+                border-radius: 6px;
+                background: #2e1065;
+                color: #c084fc;
+                font-size: 15px;
+                border: 1px solid rgba(168, 85, 247, 0.4);
+            }
+        """)
         uc_layout.addWidget(self.skin_head)
+        
+        uc_info = QVBoxLayout()
+        uc_info.setSpacing(0)
+        uc_info.setContentsMargins(0, 0, 0, 0)
         
         self.account_label = QLabel("cicciook")
         self.account_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #ffffff; background: transparent; border: none;")
         self.status_label = QLabel("• Online")
         self.status_label.setStyleSheet("font-size: 9px; color: #4ade80; background: transparent; border: none;")
         
-        uc_info = QVBoxLayout()
-        uc_info.setSpacing(0)
         uc_info.addWidget(self.account_label)
         uc_info.addWidget(self.status_label)
         uc_layout.addLayout(uc_info)
         top_bar.addWidget(self.user_chip)
         
-        # 4. LOGO IN ALTO A DESTRA
+        # 4. LOGO UFFICIALE (Sostituisce il testo deformato in alto a destra)
         self.logo_label = QLabel()
-        self.logo_label.setFixedSize(140, 40)
+        self.logo_label.setFixedSize(170, 48)
         self.logo_label.setScaledContents(True)
         if LOGO_PATH.exists():
             self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)))
         else:
             self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            self.logo_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
+            self.logo_label.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent; border: none;")
         top_bar.addWidget(self.logo_label)
         
         outer.addLayout(top_bar)
         
-        # Stacked Widget per le varie schermate
+        # Stacked Widget per le schermate
         self.stack = QStackedWidget()
         self.stack.setStyleSheet("background: transparent;")
         outer.addWidget(self.stack, 1)
@@ -522,7 +548,6 @@ class MainWindow(QMainWindow):
     def build_home(self):
         p = self.pages["Home"]
         
-        # 1. Search Bar Viola Glassmorphic
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
         
@@ -556,7 +581,6 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(mr_btn)
         p.layout().addLayout(top_bar)
         
-        # 2. Hero Carousel (Sfondo Viola Graduato)
         self.hero_frame = QFrame()
         self.hero_frame.setObjectName("HeroFrame")
         self.hero_frame.setStyleSheet("""
@@ -618,7 +642,6 @@ class MainWindow(QMainWindow):
         h_layout.addWidget(self.hero_content, 1)
         p.layout().addWidget(self.hero_frame)
 
-        # Indicatori del carosello
         self.dots_layout = QHBoxLayout()
         self.dots_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dots_layout.setSpacing(10)
@@ -633,7 +656,6 @@ class MainWindow(QMainWindow):
             self.dots.append(dot)
         p.layout().addLayout(self.dots_layout)
 
-        # 3. Griglia Modpack in Evidenza (Presi dalla foto 2)
         grid_header = QHBoxLayout()
         gh_title = QLabel("★ Modpack in evidenza")
         gh_title.setStyleSheet("font-size: 17px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
@@ -694,7 +716,6 @@ class MainWindow(QMainWindow):
         p.layout().addLayout(grid_layout)
         p.layout().addStretch()
         
-        # Animazioni del carosello
         self.hero_opacity = QGraphicsOpacityEffect(self.hero_content)
         self.hero_content.setGraphicsEffect(self.hero_opacity)
         self.hero_opacity.setOpacity(1.0)
@@ -1376,7 +1397,6 @@ class MainWindow(QMainWindow):
             item.setSizeHint(QSize(0, 90))
             self.instance_list.addItem(item)
             
-            # Popola il menu a tendina top
             if instance.get("status") == "installed":
                 self.top_instance_combo.addItem(instance.get("name", "Istanza"), instance)
 
@@ -1423,6 +1443,7 @@ class MainWindow(QMainWindow):
         save_config(self.config)
         if hasattr(self, "account_label") and not self.account:
             self.account_label.setText(val if val else "cicciook")
+            self.load_skin_head(val if val else "cicciook")
 
     def save_client_id(self):
         value = self.client_id_input.text().strip()
@@ -1488,20 +1509,30 @@ class MainWindow(QMainWindow):
         self.login_status.setText("Account disconnesso.")
         self.update_account_ui()
 
-    def set_skin_head(self, label, data):
+    def load_skin_head(self, username):
+        if not username: return
+        self.skin_worker = SkinHeadWorker(username)
+        self.skin_worker.loaded.connect(self.set_skin_head)
+        self.skin_worker.start()
+
+    def set_skin_head(self, data):
         pixmap = QPixmap()
         if pixmap.loadFromData(data):
-            label.setPixmap(pixmap.scaled(22, 22, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+            self.skin_head.setPixmap(pixmap.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.skin_head.setText("")
 
     def update_account_ui(self):
         if self.account:
-            self.account_label.setText(self.account.get("name", "cicciook"))
+            username = self.account.get("name", "cicciook")
+            self.account_label.setText(username)
             self.status_label.setText("• Online")
+            self.load_skin_head(username)
             if hasattr(self, "logout_button"): self.logout_button.setVisible(True)
             if hasattr(self, "login_button"): self.login_button.setText("Account collegato")
         else:
             name = self.config.get("offline_username", "cicciook")
             self.account_label.setText(name)
             self.status_label.setText("• Offline")
+            self.load_skin_head(name)
             if hasattr(self, "logout_button"): self.logout_button.setVisible(False)
             if hasattr(self, "login_button"): self.login_button.setText("Accedi con Microsoft")
