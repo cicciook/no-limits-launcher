@@ -19,6 +19,18 @@ class InstanceStore:
         except (json.JSONDecodeError, OSError):
             return []
 
+    def update_instance(self, instance_id: str, updated: dict) -> None:
+        items = self.list_instances()
+        for index, item in enumerate(items):
+            if item.get("id") == instance_id:
+                items[index] = updated
+                self._write(items)
+                return
+        raise KeyError(instance_id)
+
+    def _write(self, items):
+        self.path.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
+
     def add_instance(self, name: str, minecraft_version: str, loader: str = "vanilla") -> dict:
         name = name.strip()
         if not name:
@@ -28,5 +40,5 @@ class InstanceStore:
             raise ValueError("Esiste già un'istanza con questo nome.")
         item = {"id": f"instance-{int(datetime.now(timezone.utc).timestamp() * 1000)}", "name": name, "minecraft_version": minecraft_version.strip(), "loader": loader.lower(), "created_at": datetime.now(timezone.utc).isoformat(), "status": "not_installed"}
         items.append(item)
-        self.path.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write(items)
         return item
