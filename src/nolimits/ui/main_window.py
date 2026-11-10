@@ -58,22 +58,91 @@ def make_nav_icon(name):
 
 class HeroDataWorker(QThread):
     image_loaded = Signal(str, bytes)
+
     def __init__(self, pack_queries):
         super().__init__()
         self.pack_queries = pack_queries
 
+    @staticmethod
+    def _normalise(value):
+        return "".join(char.lower() for char in value if char.isalnum())
+
     def run(self):
         import requests
         provider = ModrinthProvider()
-        for key, query in self.pack_queries.items():
+        for key, config in self.pack_queries.items():
             try:
-                results = provider.search_modpacks(query)
-                if results and results[0].get("icon_url"):
-                    res = requests.get(results[0]["icon_url"], timeout=10)
-                    if res.status_code == 200:
-                        self.image_loaded.emit(key, res.content)
+                query = config["query"]
+                expected_title = config["title"]
+                results = provider.search_modpacks(query, limit=20)
+                if not results:
+                    continue
+
+                expected = self._normalise(expected_title)
+                pack = next(
+                    (item for item in results if self._normalise(item.get("title", "")) == expected),
+                    results[0],
+                )
+                # Prefer Modrinth's featured screenshot, then another gallery
+                # image, and finally the project's icon.
+                image_url = pack.get("featured_gallery")
+                if not image_url:
+                    gallery = pack.get("gallery") or []
+                    image_url = gallery[0] if gallery else None
+                image_url = image_url or pack.get("icon_url")
+                if not image_url:
+                    continue
+
+                response = requests.get(
+                    image_url,
+                    timeout=15,
+                    headers={"User-Agent": "NoLimitsLauncher/0.3.0"},
+                )
+                response.raise_for_status()
+                self.image_loaded.emit(key, response.content)
             except Exception:
-                pass
+                # A missing image must not prevent the other featured packs loading.
+                continue
+
+
+class CoverLabel(QLabel):
+    """Image label that center-crops covers without stretching their aspect ratio."""
+
+    def __init__(self, placeholder="", parent=None):
+        super().__init__(placeholder, parent)
+        self._source_pixmap = None
+        self._placeholder = placeholder
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def set_placeholder(self, text):
+        self._placeholder = text
+        if self._source_pixmap is None:
+            self.setText(text)
+
+    def set_cover_data(self, data):
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data) or pixmap.isNull():
+            return False
+        self._source_pixmap = pixmap
+        self.setText("")
+        self._render_cover()
+        return True
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._render_cover()
+
+    def _render_cover(self):
+        if self._source_pixmap is None or self.width() <= 0 or self.height() <= 0:
+            return
+        scaled = self._source_pixmap.scaled(
+            self.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = max(0, (scaled.width() - self.width()) // 2)
+        y = max(0, (scaled.height() - self.height()) // 2)
+        self.setPixmap(scaled.copy(x, y, self.width(), self.height()))
 
 class SearchWorker(QThread):
     completed = Signal(list)
@@ -415,9 +484,8 @@ class MainWindow(QMainWindow):
         h_layout.addWidget(prev_btn)
         
         # Copertina grande
-        self.hero_cover = QLabel()
+        self.hero_cover = CoverLabel("Immagine non disponibile")
         self.hero_cover.setFixedSize(280, 160)
-        self.hero_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hero_cover.setStyleSheet("font-size: 20px; font-weight: 900; color: #6ea4ff; background: #0c1427; border-radius: 10px; border: 1px solid #1c2b4a;")
         h_layout.addWidget(self.hero_cover)
         
@@ -509,10 +577,9 @@ class MainWindow(QMainWindow):
             c_box.setContentsMargins(12, 12, 12, 12)
             c_box.setSpacing(8)
             
-            c_img = QLabel(p_name)
+            c_img = CoverLabel(p_name)
             c_img.setFixedHeight(120)
-            c_img.setScaledContents(True)
-            c_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c_img.setMinimumWidth(0)
             c_img.setStyleSheet("background: #162447; border-radius: 8px; font-weight: 800; color: #6ea4ff; font-size: 14px; border: none;")
             
             c_title = QLabel(p_name)
@@ -564,12 +631,9 @@ class MainWindow(QMainWindow):
                 dot.setFixedSize(8, 6)
                 dot.setStyleSheet("background: #1e293b; border-radius: 3px;")
                 
+        self.hero_cover.set_placeholder(pack["title"])
         if hasattr(self, "hero_images") and pack["query"] in self.hero_images:
-            pixmap = QPixmap()
-            pixmap.loadFromData(self.hero_images[pack["query"]])
-            self.hero_cover.setPixmap(pixmap.scaled(280, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            self.hero_cover.setText(pack["title"])
+            self.hero_cover.set_cover_data(self.hero_images[pack["query"]])
 
     def next_hero(self):
         self.hero_index = (self.hero_index + 1) % len(self.hero_packs)
@@ -580,12 +644,17 @@ class MainWindow(QMainWindow):
         self.update_hero_ui()
 
     def load_modrinth_images(self):
-        queries = {p["query"]: p["query"] for p in self.hero_packs}
-        queries["SkyFactory 4"] = "SkyFactory 4"
-        queries["RLCraft"] = "RLCraft"
-        queries["OceanBlock"] = "OceanBlock"
-        queries["Create Above and Beyond"] = "Create Above and Beyond"
-        
+        queries = {
+            "All the mods 9": {"query": "All the Mods 9", "title": "All The Mods 9"},
+            "RLCraft": {"query": "RLCraft", "title": "RLCraft"},
+            "SkyFactory 4": {"query": "SkyFactory 4", "title": "SkyFactory 4"},
+            "OceanBlock": {"query": "OceanBlock", "title": "FTB OceanBlock 2"},
+            "Create Above and Beyond": {
+                "query": "Create Above and Beyond",
+                "title": "Create Above & Beyond",
+            },
+        }
+
         self.hero_images = {}
         self.hero_worker = HeroDataWorker(queries)
         self.hero_worker.image_loaded.connect(self.on_hero_image_loaded)
@@ -593,14 +662,12 @@ class MainWindow(QMainWindow):
 
     def on_hero_image_loaded(self, key, data):
         self.hero_images[key] = data
-        pixmap = QPixmap()
-        if pixmap.loadFromData(data):
-            # Aggiorna le card della griglia
-            if key in self.grid_cards:
-                self.grid_cards[key].setPixmap(pixmap.scaled(220, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-            # Aggiorna l'Hero se corrisponde al pack corrente
-            if self.hero_packs[self.hero_index]["query"] == key:
-                self.hero_cover.setPixmap(pixmap.scaled(280, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        # Aggiorna le card della griglia con un crop proporzionato.
+        if key in self.grid_cards:
+            self.grid_cards[key].set_cover_data(data)
+        # Aggiorna la copertina grande se è il modpack attualmente mostrato.
+        if self.hero_packs[self.hero_index]["query"] == key:
+            self.hero_cover.set_cover_data(data)
 
     def trigger_home_search(self):
         query = self.home_search_input.text().strip()
