@@ -167,7 +167,6 @@ class MainWindow(QMainWindow):
         self.search_worker=SearchWorker(query); self.search_worker.completed.connect(self.show_results); self.search_worker.failed.connect(self.search_failed); self.search_worker.finished.connect(self.search_finished); self.search_worker.start()
 
     def show_results(self,packs):
-        self.cover_workers=[]
         if not packs:
             self.results.addItem("Nessun modpack trovato. Prova un altro nome.")
             return
@@ -228,7 +227,7 @@ class MainWindow(QMainWindow):
 
     def show_pack_details(self,item):
         pack=item.data(Qt.ItemDataRole.UserRole)
-        if pack: QMessageBox.information(self,pack["title"],f'{pack["description"]}\n\nAutore: {pack["author"]}\nID Modrinth: {pack["id"]}\n\nInstallazione del modpack: in sviluppo.')
+        if pack: QMessageBox.information(self,pack["title"],f'{pack.get("description","")}\n\nAutore: {pack.get("author","Unknown")}\nDownload: {pack.get("downloads",0):,}\nID Modrinth: {pack.get("id","")}\n\nUsa il pulsante Installa per creare un'istanza separata.')
 
     def search_failed(self,message): QMessageBox.warning(self,"Ricerca non riuscita",message)
     def search_finished(self): self.search_button.setEnabled(True); self.search_button.setText("Cerca")
