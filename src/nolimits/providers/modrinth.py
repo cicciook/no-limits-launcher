@@ -36,5 +36,7 @@ class ModrinthProvider(ModpackProvider):
                 "versions": hit.get("versions", []),
                 "date_modified": hit.get("date_modified", ""),
                 "project_url": f"https://modrinth.com/modpack/{hit.get('slug', '')}",
+                "featured_gallery": hit.get("featured_gallery"),
+                "gallery": hit.get("gallery", []),
             })
         return packs
