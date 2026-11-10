@@ -3,15 +3,15 @@
 Launcher Minecraft desktop multipiattaforma, in sviluppo, indipendente da Nuovo Ordine.
 
 ## Prototipo attuale
-- Interfaccia desktop PySide6 per Windows, Linux e macOS
+- Interfaccia desktop scura blu/neon con navigazione laterale ispirata al concept grafico
 - Ricerca modpack tramite API pubblica Modrinth
 - Registro locale per istanze Minecraft indipendenti
-- Modulo di autenticazione Microsoft portato da Nuovo Ordine (Device Code, Xbox Live, XSTS, profilo Minecraft e refresh token)
-- Provider CurseForge predisposto, ma non ancora implementato: richiede API key autorizzata
+- Login Microsoft Device Code Flow portato da Nuovo Ordine, con Xbox Live, XSTS, profilo Minecraft e refresh token nel portachiavi di sistema
+- Il portachiavi usa un namespace separato: non sovrascrive i token di Nuovo Ordine
+- Provider CurseForge predisposto ma non ancora implementato: richiede API key autorizzata
 
 ## Avvio da sorgente
-Richiede Python 3.11+.
-
+Python 3.11+:
 ```bash
 python -m venv .venv
 # Windows: .venv\\Scripts\\activate
@@ -20,11 +20,12 @@ pip install -e .
 python -m nolimits
 ```
 
+## Login Microsoft
+Apri Account, inserisci il Client ID pubblico (Application/Client ID) dell'app Microsoft registrata per account personali, abilita il flusso client pubblico/device code in Microsoft Entra e premi Accedi. Non inserire client secret o password nel launcher. Il Client ID può essere fornito anche tramite variabile d'ambiente `NO_LIMITS_MSA_CLIENT_ID`.
+
 ## Da completare
-- Collegare il login Microsoft all'interfaccia e configurare il Client ID pubblico dell'app
+- Ripristino automatico sessione tramite refresh token all'avvio e logout
 - Installazione modpack e risoluzione loader/librerie
 - Avvio del gioco e gestione Java
 - Integrazione CurseForge tramite API autorizzata
 - Client Android separato: non condivide il runtime Java desktop
-
-Non inserire password Microsoft o client secret nel repository. Il Client ID è un identificativo pubblico dell'applicazione.
