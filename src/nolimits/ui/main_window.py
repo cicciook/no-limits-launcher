@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
         self.search_button=QPushButton("Cerca"); self.search_button.setObjectName("Primary"); self.search_button.clicked.connect(self.search_modpacks); row.addWidget(self.search_button); p.layout().addLayout(row)
         self.results=QListWidget(); self.results.itemDoubleClicked.connect(self.show_pack_details); p.layout().addWidget(self.results,1)
         actions=QHBoxLayout(); self.install_button=QPushButton("Installa modpack selezionato"); self.install_button.setObjectName("Primary"); self.install_button.clicked.connect(self.install_selected_pack); actions.addWidget(self.install_button); self.install_status=QLabel(""); self.install_status.setObjectName("Muted"); actions.addWidget(self.install_status,1); p.layout().addLayout(actions)
-        note=QLabel("Nota: al momento la ricerca è attiva; installazione e risoluzione automatica dei loader sono in sviluppo."); note.setObjectName("Muted"); p.layout().addWidget(note)
+        note=QLabel("Seleziona un risultato e premi Installa: il launcher scarica il pacchetto .mrpack e prepara un'istanza isolata."); note.setObjectName("Muted"); p.layout().addWidget(note)
 
     def build_instances(self):
         p=self.pages["Le mie istanze"]; self.page_header("Le mie istanze","Le tue installazioni","Ogni istanza avrà cartella, versione Minecraft e mod loader indipendenti.")
