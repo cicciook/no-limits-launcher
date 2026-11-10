@@ -305,16 +305,11 @@ class MainWindow(QMainWindow):
         
         self.hero_index = 0
         self.hero_packs = [
-            {"title": "All The Mods 9",
-                "project_slugs": ["all-the-mods-9"], "desc": "Un modpack completo con centinaia di mod per un'esperienza unica!", "tags": ["Modpack", "1.20.1", "Forge", "Tech"], "query": "All the mods 9"},
-            {"title": "RLCraft",
-                "project_slugs": ["rlcraft"], "desc": "L'esperienza di sopravvivenza più estrema e impegnativa su Minecraft.", "tags": ["Hardcore", "1.12.2", "Forge", "RPG"], "query": "RLCraft"},
-            {"title": "SkyFactory 4",
-                "project_slugs": ["skyfactory-4"], "desc": "Automazione, risorse e magia a partire da un singolo albero nel vuoto.", "tags": ["Skyblock", "1.12.2", "Forge", "Tech"], "query": "SkyFactory 4"},
-            {"title": "FTB OceanBlock 2",
-                "project_slugs": ["ftb-oceanblock-2", "oceanblock-2"], "desc": "Sopravvivi in un oceano infinito con nuove tecnologie e quest uniche.", "tags": ["Ocean", "1.20.1", "Forge", "Quests"], "query": "OceanBlock"},
-            {"title": "Create Above & Beyond",
-                "project_slugs": ["create-above-and-beyond"], "desc": "Crea fabbriche automatizzate e conquista lo spazio con la mod Create.", "tags": ["Automation", "1.20.1", "NeoForge", "Space"], "query": "Create Above and Beyond"}
+            {"title": "All The Mods 9", "desc": "Un modpack completo con centinaia di mod per un'esperienza unica!", "tags": ["Modpack", "1.20.1", "Forge", "Tech"], "query": "All the mods 9"},
+            {"title": "RLCraft", "desc": "L'esperienza di sopravvivenza più estrema e impegnativa su Minecraft.", "tags": ["Hardcore", "1.12.2", "Forge", "RPG"], "query": "RLCraft"},
+            {"title": "SkyFactory 4", "desc": "Automazione, risorse e magia a partire da un singolo albero nel vuoto.", "tags": ["Skyblock", "1.12.2", "Forge", "Tech"], "query": "SkyFactory 4"},
+            {"title": "FTB OceanBlock 2", "desc": "Sopravvivi in un oceano infinito con nuove tecnologie e quest uniche.", "tags": ["Ocean", "1.20.1", "Forge", "Quests"], "query": "OceanBlock"},
+            {"title": "Create Above & Beyond", "desc": "Crea fabbriche automatizzate e conquista lo spazio con la mod Create.", "tags": ["Automation", "1.20.1", "NeoForge", "Space"], "query": "Create Above and Beyond"}
         ]
         
         self.root = QWidget()
@@ -741,29 +736,34 @@ class MainWindow(QMainWindow):
             "All the mods 9": {
                 "query": "All the Mods 9",
                 "title": "All The Mods 9",
+                "project_slugs": ["all-the-mods-9"],
                 "title_aliases": ["All the Mods 9"],
                 "slug_aliases": ["all-the-mods-9"],
             },
             "RLCraft": {
                 "query": "RLCraft",
                 "title": "RLCraft",
+                "project_slugs": ["rlcraft"],
                 "slug_aliases": ["rlcraft"],
             },
             "SkyFactory 4": {
                 "query": "SkyFactory 4",
                 "title": "SkyFactory 4",
+                "project_slugs": ["skyfactory-4"],
                 "title_aliases": ["Sky Factory 4"],
                 "slug_aliases": ["skyfactory-4"],
             },
             "OceanBlock": {
                 "query": "OceanBlock",
                 "title": "FTB OceanBlock 2",
+                "project_slugs": ["ftb-oceanblock-2", "oceanblock-2"],
                 "title_aliases": ["OceanBlock 2", "FTB OceanBlock"],
                 "slug_aliases": ["ftb-oceanblock-2", "oceanblock-2"],
             },
             "Create Above and Beyond": {
                 "query": "Create Above and Beyond",
                 "title": "Create Above & Beyond",
+                "project_slugs": ["create-above-and-beyond"],
                 "title_aliases": ["Create Above and Beyond", "Create: Above and Beyond"],
                 "slug_aliases": ["create-above-and-beyond"],
             },
