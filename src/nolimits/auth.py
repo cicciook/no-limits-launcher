@@ -10,7 +10,7 @@ from minecraft_launcher_lib.exceptions import (
     InvalidRefreshToken,
 )
 
-SERVICE = "NuovoOrdine.Microsoft"
+SERVICE = "NoLimitsLauncher.Microsoft"
 DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
 TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
 # Lo scope deve essere identico tra device-code e refresh. "offline_access"
