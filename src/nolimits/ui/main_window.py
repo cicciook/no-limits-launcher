@@ -3,8 +3,9 @@ import json
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer
-from PySide6.QtGui import QIcon, QPixmap, QPainter
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -72,24 +73,20 @@ class HeroDataWorker(QThread):
         provider = ModrinthProvider()
         for key, config in self.pack_queries.items():
             try:
-                query = config["query"]
-                expected_title = config["title"]
-                results = provider.search_modpacks(query, limit=20)
-                if not results:
+                results = provider.search_modpacks(config["query"], limit=30)
+                expected = self._normalise(config["title"])
+                # Only use the exact Modrinth project. Never substitute a
+                # similarly named project or a gallery screenshot.
+                pack = next(
+                    (item for item in results
+                     if self._normalise(item.get("title", "")) == expected),
+                    None,
+                )
+                if not pack:
                     continue
 
-                expected = self._normalise(expected_title)
-                pack = next(
-                    (item for item in results if self._normalise(item.get("title", "")) == expected),
-                    results[0],
-                )
-                # Prefer Modrinth's featured screenshot, then another gallery
-                # image, and finally the project's icon.
-                image_url = pack.get("featured_gallery")
-                if not image_url:
-                    gallery = pack.get("gallery") or []
-                    image_url = gallery[0] if gallery else None
-                image_url = image_url or pack.get("icon_url")
+                # icon_url is the project's actual cover/icon on Modrinth.
+                image_url = pack.get("icon_url")
                 if not image_url:
                     continue
 
@@ -101,7 +98,7 @@ class HeroDataWorker(QThread):
                 response.raise_for_status()
                 self.image_loaded.emit(key, response.content)
             except Exception:
-                # A missing image must not prevent the other featured packs loading.
+                # One unavailable cover must not stop the remaining projects.
                 continue
 
 
@@ -458,85 +455,84 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(mr_btn)
         p.layout().addLayout(top_bar)
         
-        # 2. Hero Section (In Evidenza grande con gradient)
+        # 2. Hero carousel: Modrinth cover, matching gradient and dot navigation.
         self.hero_frame = QFrame()
+        self.hero_frame.setObjectName("HeroFrame")
         self.hero_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #111d38, stop:1 #080d1a);
-                border: 1px solid #1e3366;
+            QFrame#HeroFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #17233d, stop:1 #080d1a);
+                border: 1px solid #263b65;
                 border-radius: 14px;
             }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
+            QLabel { border: none; background: transparent; }
         """)
-        
+
         h_layout = QHBoxLayout(self.hero_frame)
         h_layout.setContentsMargins(24, 24, 24, 24)
-        h_layout.setSpacing(24)
-        
-        # Freccia Sinistra
-        prev_btn = QPushButton("<")
-        prev_btn.setFixedSize(32, 32)
-        prev_btn.setStyleSheet("background: rgba(15, 23, 42, 0.6); color: #ffffff; border-radius: 16px; font-weight: bold; border: 1px solid #1e293b;")
-        prev_btn.clicked.connect(self.prev_hero)
-        h_layout.addWidget(prev_btn)
-        
-        # Copertina grande
-        self.hero_cover = CoverLabel("Immagine non disponibile")
+        h_layout.setSpacing(20)
+
+        self.hero_content = QFrame()
+        self.hero_content.setStyleSheet("background: transparent; border: none;")
+        content_layout = QHBoxLayout(self.hero_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(24)
+
+        self.hero_cover = CoverLabel("Copertina non disponibile")
         self.hero_cover.setFixedSize(280, 160)
-        self.hero_cover.setStyleSheet("font-size: 20px; font-weight: 900; color: #6ea4ff; background: #0c1427; border-radius: 10px; border: 1px solid #1c2b4a;")
-        h_layout.addWidget(self.hero_cover)
-        
-        # Informazioni del modpack
+        self.hero_cover.setStyleSheet(
+            "font-size: 16px; font-weight: 800; color: #b8ccf5; "
+            "background: rgba(8, 13, 26, 150); border-radius: 10px; "
+            "border: 1px solid rgba(255,255,255,35);"
+        )
+        content_layout.addWidget(self.hero_cover)
+
         hero_info = QVBoxLayout()
         hero_info.setSpacing(10)
-        
+
         self.hero_title_lbl = QLabel("All The Mods 9")
         self.hero_title_lbl.setStyleSheet("font-size: 26px; font-weight: 900; color: #ffffff;")
-        
+
         self.hero_desc_lbl = QLabel("Un modpack completo con centinaia di mod per un'esperienza unica!")
-        self.hero_desc_lbl.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        self.hero_desc_lbl.setStyleSheet("color: #e0e7f5; font-size: 13px;")
         self.hero_desc_lbl.setWordWrap(True)
-        
+
         self.tags_layout = QHBoxLayout()
         self.tags_layout.setSpacing(6)
-        
+
         download_btn = QPushButton("📥  Scarica")
-        download_btn.setStyleSheet("background: #2563eb; color: #ffffff; border-radius: 8px; padding: 10px 28px; font-weight: 700; font-size: 13px; border: none;")
+        download_btn.setStyleSheet(
+            "background: #2563eb; color: #ffffff; border-radius: 8px; "
+            "padding: 10px 28px; font-weight: 700; font-size: 13px; border: none;"
+        )
         download_btn.clicked.connect(lambda: self.navigate("Catalogo"))
-        
+
         hero_info.addWidget(self.hero_title_lbl)
         hero_info.addWidget(self.hero_desc_lbl)
         hero_info.addLayout(self.tags_layout)
         hero_info.addSpacing(6)
         hero_info.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        
-        h_layout.addLayout(hero_info, 1)
-        
-        # Freccia Destra
-        next_btn = QPushButton(">")
-        next_btn.setFixedSize(32, 32)
-        next_btn.setStyleSheet("background: rgba(15, 23, 42, 0.6); color: #ffffff; border-radius: 16px; font-weight: bold; border: 1px solid #1e293b;")
-        next_btn.clicked.connect(self.next_hero)
-        h_layout.addWidget(next_btn)
-        
+        hero_info.addStretch()
+
+        content_layout.addLayout(hero_info, 1)
+        h_layout.addWidget(self.hero_content, 1)
         p.layout().addWidget(self.hero_frame)
-        
-        # Indicatori del carosello (Dots/Linee)
+
+        # Clickable circular pagination dots.
         self.dots_layout = QHBoxLayout()
         self.dots_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.dots_layout.setSpacing(6)
+        self.dots_layout.setSpacing(10)
         self.dots = []
         for i in range(len(self.hero_packs)):
-            dot = QLabel()
-            dot.setFixedSize(8 if i != 0 else 24, 6)
-            dot.setStyleSheet("background: #3b82f6; border-radius: 3px;" if i == 0 else "background: #1e293b; border-radius: 3px;")
+            dot = QPushButton()
+            dot.setCursor(Qt.CursorShape.PointingHandCursor)
+            dot.setFixedSize(10, 10)
+            dot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            dot.clicked.connect(lambda checked=False, index=i: self.go_to_hero(index))
             self.dots_layout.addWidget(dot)
             self.dots.append(dot)
         p.layout().addLayout(self.dots_layout)
-        
+
         # 3. Griglia Modpack in Evidenza
         grid_header = QHBoxLayout()
         gh_title = QLabel("★ Modpack in evidenza")
@@ -598,50 +594,114 @@ class MainWindow(QMainWindow):
         p.layout().addLayout(grid_layout)
         p.layout().addStretch()
         
-        # Timer per far scorrere automaticamente la barra/hero carosello
+        # Smooth cross-fade between featured modpacks.
+        self.hero_opacity = QGraphicsOpacityEffect(self.hero_content)
+        self.hero_content.setGraphicsEffect(self.hero_opacity)
+        self.hero_opacity.setOpacity(1.0)
+        self.hero_animation = None
+        self.hero_transitioning = False
+
         self.hero_timer = QTimer(self)
         self.hero_timer.timeout.connect(self.next_hero)
-        self.hero_timer.start(4000)
-        
+        self.hero_timer.start(5500)
+
         self.update_hero_ui()
+
+    def update_hero_gradient(self, data):
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data) or pixmap.isNull():
+            return
+        sample = pixmap.scaled(
+            1, 1,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        color = sample.toImage().pixelColor(0, 0)
+        start = color.darker(155)
+        end = color.darker(420)
+        self.hero_frame.setStyleSheet(f"""
+            QFrame#HeroFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {start.name()}, stop:1 {end.name()});
+                border: 1px solid {color.darker(135).name()};
+                border-radius: 14px;
+            }}
+            QLabel {{ border: none; background: transparent; }}
+        """)
 
     def update_hero_ui(self):
         pack = self.hero_packs[self.hero_index]
         self.hero_title_lbl.setText(pack["title"])
         self.hero_desc_lbl.setText(pack["desc"])
-        
-        # Pulisci i tag precedenti
+
         while self.tags_layout.count():
             child = self.tags_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-                
+
         for tag in pack["tags"]:
-            t_lbl = QLabel(tag)
-            t_lbl.setStyleSheet("background: #1b2a4a; color: #93c5fd; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;")
-            self.tags_layout.addWidget(t_lbl)
+            tag_label = QLabel(tag)
+            tag_label.setStyleSheet(
+                "background: rgba(8, 13, 26, 110); color: #e0eaff; "
+                "padding: 4px 12px; border-radius: 12px; "
+                "font-size: 11px; font-weight: 600;"
+            )
+            self.tags_layout.addWidget(tag_label)
         self.tags_layout.addStretch()
-        
-        # Aggiorna gli indicatori a pallino
+
         for idx, dot in enumerate(self.dots):
             if idx == self.hero_index:
-                dot.setFixedSize(24, 6)
-                dot.setStyleSheet("background: #3b82f6; border-radius: 3px;")
+                dot.setFixedSize(11, 11)
+                dot.setStyleSheet(
+                    "QPushButton { background: #60a5fa; border: 2px solid #dbeafe; "
+                    "border-radius: 5px; }"
+                )
             else:
-                dot.setFixedSize(8, 6)
-                dot.setStyleSheet("background: #1e293b; border-radius: 3px;")
-                
+                dot.setFixedSize(8, 8)
+                dot.setStyleSheet(
+                    "QPushButton { background: #52617a; border: none; border-radius: 4px; } "
+                    "QPushButton:hover { background: #93c5fd; }"
+                )
+
         self.hero_cover.set_placeholder(pack["title"])
-        if hasattr(self, "hero_images") and pack["query"] in self.hero_images:
-            self.hero_cover.set_cover_data(self.hero_images[pack["query"]])
+        image_data = getattr(self, "hero_images", {}).get(pack["query"])
+        if image_data:
+            self.hero_cover.set_cover_data(image_data)
+            self.update_hero_gradient(image_data)
+
+    def go_to_hero(self, index):
+        if not self.hero_packs or index == self.hero_index or self.hero_transitioning:
+            return
+        self.hero_transitioning = True
+        self.hero_timer.start(5500)
+
+        fade_out = QPropertyAnimation(self.hero_opacity, b"opacity", self)
+        fade_out.setDuration(180)
+        fade_out.setStartValue(1.0)
+        fade_out.setEndValue(0.0)
+        fade_out.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        def show_next():
+            self.hero_index = index
+            self.update_hero_ui()
+            fade_in = QPropertyAnimation(self.hero_opacity, b"opacity", self)
+            fade_in.setDuration(420)
+            fade_in.setStartValue(0.0)
+            fade_in.setEndValue(1.0)
+            fade_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.hero_animation = fade_in
+            fade_in.finished.connect(lambda: setattr(self, "hero_transitioning", False))
+            fade_in.start()
+
+        self.hero_animation = fade_out
+        fade_out.finished.connect(show_next)
+        fade_out.start()
 
     def next_hero(self):
-        self.hero_index = (self.hero_index + 1) % len(self.hero_packs)
-        self.update_hero_ui()
+        self.go_to_hero((self.hero_index + 1) % len(self.hero_packs))
 
     def prev_hero(self):
-        self.hero_index = (self.hero_index - 1) % len(self.hero_packs)
-        self.update_hero_ui()
+        self.go_to_hero((self.hero_index - 1) % len(self.hero_packs))
 
     def load_modrinth_images(self):
         queries = {
@@ -662,12 +722,11 @@ class MainWindow(QMainWindow):
 
     def on_hero_image_loaded(self, key, data):
         self.hero_images[key] = data
-        # Aggiorna le card della griglia con un crop proporzionato.
         if key in self.grid_cards:
             self.grid_cards[key].set_cover_data(data)
-        # Aggiorna la copertina grande se è il modpack attualmente mostrato.
         if self.hero_packs[self.hero_index]["query"] == key:
             self.hero_cover.set_cover_data(data)
+            self.update_hero_gradient(data)
 
     def trigger_home_search(self):
         query = self.home_search_input.text().strip()
