@@ -29,4 +29,17 @@ QProgressBar { background: #0b1425; color: #eaf0ff; border: 1px solid #2a416a; b
 QProgressBar::chunk { background: #3478ff; border-radius: 6px; }
 QPushButton:disabled { color: #64738f; background: #111a2b; border-color: #202e47; }
 QToolTip { background: #17233b; color: #f1f5ff; border: 1px solid #4b78c8; padding: 5px; }
+
+QFrame#ContentIntro { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #14264a,stop:1 #17203a); border: 1px solid #344c7b; border-radius: 14px; }
+QListWidget#ContentResults { background: transparent; border: 0; padding: 2px; }
+QFrame#ContentResultCard { background: #111d32; border: 1px solid #2a3d60; border-radius: 13px; }
+QFrame#ContentResultCard:hover { background: #172846; border: 1px solid #4a73b8; }
+QLabel#ContentCover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #263c67,stop:1 #17223b); border: 1px solid #405985; border-radius: 10px; color: #9fb6df; font-size: 9px; font-weight: 800; }
+QLabel#ContentTitle { color: #f2f6ff; font-size: 14px; font-weight: 800; background: transparent; }
+QLabel#ContentDescription { color: #8fa2c4; font-size: 11px; background: transparent; }
+QLabel#ContentAuthor { color: #d6e1f6; font-size: 11px; font-weight: 700; background: transparent; }
+QLabel#ContentVersion { color: #7fa6ed; font-size: 10px; background: transparent; }
+QPushButton#SecondaryAction { background: #1a2b49; border: 1px solid #39547e; color: #bcd2f5; padding: 7px 10px; border-radius: 8px; font-size: 11px; }
+QPushButton#SecondaryAction:hover { background: #25416d; border-color: #6395ec; color: white; }
+
 """
