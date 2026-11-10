@@ -7,7 +7,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame, QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox)
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
-from nolimits.core.modpacks import install_modrinth_project, launch_instance
+from nolimits.core.modpacks import install_modrinth_project, launch_instance, search_modrinth_content, install_modrinth_content
 from nolimits import auth
 from .theme import DARK_STYLE
 
@@ -52,6 +52,31 @@ class SearchWorker(QThread):
     def run(self):
         try: self.completed.emit(ModrinthProvider().search_modpacks(self.query))
         except Exception as exc: self.failed.emit(str(exc))
+
+class ContentSearchWorker(QThread):
+    completed = Signal(list)
+    failed = Signal(str)
+    def __init__(self, query, kind):
+        super().__init__()
+        self.query, self.kind = query, kind
+    def run(self):
+        try:
+            self.completed.emit(search_modrinth_content(self.query, self.kind))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+class ContentInstallWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+    progress = Signal(int, str)
+    def __init__(self, instance, project_id, kind):
+        super().__init__()
+        self.instance, self.project_id, self.kind = instance, project_id, kind
+    def run(self):
+        try:
+            self.completed.emit(install_modrinth_content(self.instance, self.project_id, self.kind, self.progress.emit))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 class CoverWorker(QThread):
     loaded = Signal(object, bytes)
@@ -199,6 +224,8 @@ class MainWindow(QMainWindow):
                 self.login_button=QPushButton("Accedi con Microsoft"); self.login_button.setObjectName("Primary"); self.login_button.clicked.connect(self.start_login); box.addWidget(self.login_button,0,Qt.AlignmentFlag.AlignLeft)
                 self.logout_button=QPushButton("Disconnetti account"); self.logout_button.clicked.connect(self.logout); self.logout_button.setVisible(False); box.addWidget(self.logout_button,0,Qt.AlignmentFlag.AlignLeft)
                 p=self.pages[name]; p.layout().addWidget(card); p.layout().addStretch()
+            elif name in ("Mod","Shader"):
+                self.build_content_page(name, "mod" if name=="Mod" else "shader")
             elif name=="Impostazioni":
                 card,box=self.panel("Preferenze launcher","Le impostazioni dell'account Microsoft sono gestite automaticamente dal launcher.")
                 b=QPushButton("Apri account"); b.clicked.connect(lambda:self.navigate("Account")); box.addWidget(b,0,Qt.AlignmentFlag.AlignLeft); self.pages[name].layout().addWidget(card); self.pages[name].layout().addStretch()
@@ -206,10 +233,102 @@ class MainWindow(QMainWindow):
                 card,box=self.panel("In sviluppo",desc+" Questa sezione è già predisposta nell'interfaccia; la gestione completa arriverà nei prossimi aggiornamenti.")
                 self.pages[name].layout().addWidget(card); self.pages[name].layout().addStretch()
 
+    def build_content_page(self, page_name, kind):
+        page = self.pages[page_name]
+        row = QHBoxLayout()
+        selector = QComboBox()
+        selector.setMinimumWidth(220)
+        if not hasattr(self, "content_selectors"): self.content_selectors = {}
+        self.content_selectors[kind] = selector
+        row.addWidget(QLabel("Istanza"))
+        row.addWidget(selector)
+        query = QLineEdit()
+        query.setPlaceholderText("Cerca su Modrinth…")
+        if not hasattr(self, "content_queries"): self.content_queries = {}
+        self.content_queries[kind] = query
+        query.returnPressed.connect(lambda k=kind: self.search_content(k))
+        row.addWidget(query, 1)
+        search = QPushButton("Cerca")
+        search.setObjectName("Primary")
+        search.clicked.connect(lambda checked=False, k=kind: self.search_content(k))
+        row.addWidget(search)
+        page.layout().addLayout(row)
+        results = QListWidget()
+        results.setIconSize(QSize(56,56))
+        if not hasattr(self, "content_lists"): self.content_lists = {}
+        self.content_lists[kind] = results
+        page.layout().addWidget(results, 1)
+        progress = QProgressBar()
+        if not hasattr(self, "content_bars"): self.content_bars = {}
+        self.content_bars[kind] = progress
+        page.layout().addWidget(progress)
+        status = QLabel("Catalogo Modrinth • seleziona un'istanza installata")
+        status.setObjectName("Muted")
+        if not hasattr(self, "content_labels"): self.content_labels = {}
+        self.content_labels[kind] = status
+        page.layout().addWidget(status)
+        install = QPushButton("Installa selezionato")
+        install.setObjectName("Primary")
+        install.clicked.connect(lambda checked=False, k=kind: self.install_selected_content(k))
+        page.layout().addWidget(install)
+        self.refresh_content_instances()
+
+    def refresh_content_instances(self):
+        for selector in getattr(self, "content_selectors", {}).values():
+            current = selector.currentText()
+            selector.clear()
+            for instance in self.store.list_instances():
+                if instance.get("status") == "installed":
+                    selector.addItem(instance.get("name", "Istanza"), instance)
+            index = selector.findText(current)
+            if index >= 0: selector.setCurrentIndex(index)
+
+    def search_content(self, kind):
+        self.content_lists[kind].clear()
+        self.content_labels[kind].setText("Ricerca su Modrinth…")
+        worker = ContentSearchWorker(self.content_queries[kind].text().strip(), kind)
+        if not hasattr(self, "content_workers"): self.content_workers = []
+        self.content_workers.append(worker)
+        worker.completed.connect(lambda projects, k=kind: self.show_content_results(k, projects))
+        worker.failed.connect(lambda message, k=kind: self.content_labels[k].setText(message))
+        worker.finished.connect(lambda w=worker: self.content_workers.remove(w) if w in self.content_workers else None)
+        worker.start()
+
+    def show_content_results(self, kind, projects):
+        for project in projects:
+            text = "{}\n{} • {:,} download".format(project.get("title","Contenuto"), project.get("author",""), project.get("downloads",0))
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, project)
+            self.content_lists[kind].addItem(item)
+            if project.get("icon_url"):
+                worker = CoverWorker(item, project["icon_url"])
+                worker.loaded.connect(self.set_pack_cover)
+                self.cover_workers.append(worker)
+                worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
+                worker.start()
+        self.content_labels[kind].setText("{} risultati".format(len(projects)))
+
+    def install_selected_content(self, kind):
+        item = self.content_lists[kind].currentItem()
+        project = item.data(Qt.ItemDataRole.UserRole) if item else None
+        instance = self.content_selectors[kind].currentData()
+        if not project or not instance:
+            QMessageBox.information(self, "Selezione necessaria", "Scegli un contenuto e un'istanza installata.")
+            return
+        worker = ContentInstallWorker(instance, project["id"], kind)
+        if not hasattr(self, "content_install_workers"): self.content_install_workers = []
+        self.content_install_workers.append(worker)
+        worker.progress.connect(lambda value, msg, k=kind: (self.content_bars[k].setValue(value), self.content_labels[k].setText(msg), self.log_console(msg)))
+        worker.completed.connect(lambda path, k=kind: self.content_labels[k].setText("Installato: " + Path(path).name))
+        worker.failed.connect(lambda msg, k=kind: (self.content_labels[k].setText("Errore installazione"), QMessageBox.warning(self, "Installazione", msg)))
+        worker.finished.connect(lambda w=worker: self.content_install_workers.remove(w) if w in self.content_install_workers else None)
+        worker.start()
+
     def navigate(self,name):
         self.stack.setCurrentWidget(self.pages[name])
         for label,button in self.nav_buttons.items(): button.setProperty("active",label==name); button.style().unpolish(button); button.style().polish(button)
         if name=="Le mie istanze": self.refresh_instances()
+        if name in ("Mod","Shader"): self.refresh_content_instances()
         if name=="Catalogo" and self.results.count()==0: self.search_modpacks()
 
     def search_modpacks(self):
