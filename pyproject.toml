@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "no-limits-launcher"
+version = "0.1.0"
+description = "A multi-platform Minecraft launcher and modpack manager"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.7", "requests>=2.32"]
+
+[project.scripts]
+no-limits-launcher = "nolimits.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
