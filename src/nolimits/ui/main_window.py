@@ -208,6 +208,7 @@ class ContentInstallWorker(QThread):
 
 class CoverWorker(QThread):
     loaded = Signal(object, bytes)
+    failed = Signal(object, str)
     def __init__(self, item, url):
         super().__init__()
         self.item = item
@@ -215,11 +216,27 @@ class CoverWorker(QThread):
     def run(self):
         try:
             import requests
-            response = requests.get(self.url, timeout=15, headers={"User-Agent": "NoLimitsLauncher/0.3.0"})
+            response = requests.get(
+                self.url, timeout=20,
+                headers={"User-Agent": "NoLimitsLauncher/0.3.0", "Accept": "image/avif,image/webp,image/png,image/*"}
+            )
             response.raise_for_status()
+            if not response.content:
+                raise RuntimeError("Immagine vuota")
             self.loaded.emit(self.item, response.content)
-        except Exception:
-            pass
+        except Exception as exc:
+            self.failed.emit(self.item, str(exc))
+
+
+class ContentResultCard(QFrame):
+    def __init__(self, list_widget, item):
+        super().__init__()
+        self.list_widget = list_widget
+        self.item = item
+
+    def mousePressEvent(self, event):
+        self.list_widget.setCurrentItem(self.item)
+        super().mousePressEvent(event)
 
 class InstallWorker(QThread):
     completed = Signal(dict)
@@ -933,57 +950,83 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "content_offsets"):
             self.content_offsets, self.content_has_more = {}, {}
             self.content_loading, self.content_seen = {}, {}
+            self.content_cover_labels = {}
         self.content_offsets[kind] = 0
         self.content_has_more[kind] = True
         self.content_loading[kind] = False
         self.content_seen[kind] = set()
+
+        intro, intro_box = self.panel(
+            "Esplora " + page_name,
+            "Catalogo Modrinth aggiornato: seleziona un risultato per installarlo oppure apri la sua pagina ufficiale."
+        )
+        intro.setObjectName("ContentIntro")
+        page.layout().addWidget(intro)
+
         row = QHBoxLayout()
+        row.setSpacing(10)
         selector = QComboBox()
-        selector.setMinimumWidth(220)
-        if not hasattr(self, "content_selectors"): self.content_selectors = {}
+        selector.setMinimumWidth(210)
+        selector.setPlaceholderText("Seleziona istanza")
+        if not hasattr(self, "content_selectors"):
+            self.content_selectors = {}
         self.content_selectors[kind] = selector
         row.addWidget(QLabel("Istanza"))
         row.addWidget(selector)
+
         query = QLineEdit()
-        query.setPlaceholderText("Cerca su Modrinth…")
-        if not hasattr(self, "content_queries"): self.content_queries = {}
+        query.setPlaceholderText("Cerca " + page_name.lower() + " su Modrinth…")
+        if not hasattr(self, "content_queries"):
+            self.content_queries = {}
         self.content_queries[kind] = query
         query.returnPressed.connect(lambda k=kind: self.search_content(k))
         row.addWidget(query, 1)
+
         if kind == "mod":
             sort = QComboBox()
             sort.addItem("Popolari", "follows")
             sort.addItem("Più scaricate", "downloads")
             sort.addItem("Aggiornate di recente", "updated")
-            sort.setMinimumWidth(190)
+            sort.setMinimumWidth(175)
             self.mod_sort = sort
             row.addWidget(sort)
+
         search = QPushButton("Cerca")
         search.setObjectName("Primary")
         search.clicked.connect(lambda checked=False, k=kind: self.search_content(k))
         row.addWidget(search)
         page.layout().addLayout(row)
+
         results = QListWidget()
-        results.setIconSize(QSize(56, 56))
-        if not hasattr(self, "content_lists"): self.content_lists = {}
+        results.setObjectName("ContentResults")
+        results.setSpacing(5)
+        results.setUniformItemSizes(False)
+        if not hasattr(self, "content_lists"):
+            self.content_lists = {}
         self.content_lists[kind] = results
         results.verticalScrollBar().valueChanged.connect(
             lambda value, k=kind: self.maybe_load_more_content(k, value)
         )
         page.layout().addWidget(results, 1)
+
+        footer = QHBoxLayout()
         progress = QProgressBar()
-        if not hasattr(self, "content_bars"): self.content_bars = {}
+        progress.setMaximumWidth(190)
+        if not hasattr(self, "content_bars"):
+            self.content_bars = {}
         self.content_bars[kind] = progress
-        page.layout().addWidget(progress)
-        status = QLabel("Catalogo Modrinth • seleziona un'istanza installata")
+        status = QLabel("Modrinth • cerca per iniziare")
         status.setObjectName("Muted")
-        if not hasattr(self, "content_labels"): self.content_labels = {}
+        if not hasattr(self, "content_labels"):
+            self.content_labels = {}
         self.content_labels[kind] = status
-        page.layout().addWidget(status)
         install = QPushButton("Installa selezionato")
         install.setObjectName("Primary")
         install.clicked.connect(lambda checked=False, k=kind: self.install_selected_content(k))
-        page.layout().addWidget(install)
+        footer.addWidget(status, 1)
+        footer.addWidget(progress)
+        footer.addWidget(install)
+        page.layout().addLayout(footer)
         self.refresh_content_instances()
 
     def refresh_content_instances(self):
@@ -1038,17 +1081,91 @@ class MainWindow(QMainWindow):
             if not project_id or project_id in seen:
                 continue
             seen.add(project_id)
-            text = "{}\\n{} • {:,} download".format(project.get("title", "Contenuto"), project.get("author", ""), project.get("downloads", 0))
-            item = QListWidgetItem(text)
+
+            title = QLabel(project.get("title", "Contenuto senza nome"))
+            title.setObjectName("ContentTitle")
+            downloads = QLabel("{:,} download".format(project.get("downloads", 0)))
+            downloads.setObjectName("ContentDescription")
+
+            details = QVBoxLayout()
+            details.setSpacing(5)
+            details.addWidget(title)
+            details.addWidget(downloads)
+            description = (project.get("description") or "").strip()
+            if description:
+                if len(description) > 125:
+                    description = description[:122] + "…"
+                summary = QLabel(description)
+                summary.setObjectName("ContentDescription")
+                summary.setWordWrap(False)
+                details.addWidget(summary)
+
+            author = QLabel(" di " + project.get("author", "Autore sconosciuto"))
+            author.setObjectName("ContentAuthor")
+            versions = project.get("versions") or []
+            version_text = " • ".join(versions[:3]) if versions else "Versioni varie"
+            if len(versions) > 3:
+                version_text += " • +{}".format(len(versions) - 3)
+            version = QLabel(version_text)
+            version.setObjectName("ContentVersion")
+            author.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            version.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            right = QVBoxLayout()
+            right.setSpacing(5)
+            right.addWidget(author)
+            right.addWidget(version)
+            right.addStretch(1)
+            open_page = QPushButton("Apri pagina ↗")
+            open_page.setObjectName("SecondaryAction")
+            project_url = project.get("project_url", "")
+            open_page.clicked.connect(
+                lambda checked=False, url=project_url: webbrowser.open(url) if url else None
+            )
+            right.addWidget(open_page, 0, Qt.AlignmentFlag.AlignRight)
+
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, project)
+            item.setSizeHint(QSize(0, 112))
             self.content_lists[kind].addItem(item)
-            added += 1
+
+            card = ContentResultCard(self.content_lists[kind], item)
+            card.setObjectName("ContentResultCard")
+            layout = QHBoxLayout(card)
+            layout.setContentsMargins(12, 9, 12, 9)
+            layout.setSpacing(13)
+
+            cover = QLabel("MODRINTH")
+            cover.setObjectName("ContentCover")
+            cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cover.setFixedSize(76, 76)
+            cover.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            layout.addWidget(cover)
+            layout.addLayout(details, 1)
+            side = QVBoxLayout()
+            side.setSpacing(5)
+            side.addWidget(author)
+            side.addWidget(version)
+            side.addStretch(1)
+            side.addWidget(open_page, 0, Qt.AlignmentFlag.AlignRight)
+            layout.addLayout(side)
+            self.content_lists[kind].setItemWidget(item, card)
+
             if project.get("icon_url"):
-                worker = CoverWorker(item, project["icon_url"])
-                worker.loaded.connect(self.set_pack_cover)
+                worker = CoverWorker(cover, project["icon_url"])
+                worker.loaded.connect(self.set_content_cover)
+                worker.failed.connect(self.content_cover_failed)
+                if not hasattr(self, "cover_workers"):
+                    self.cover_workers = []
                 self.cover_workers.append(worker)
-                worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
+                worker.finished.connect(
+                    lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None
+                )
                 worker.start()
+            else:
+                cover.setText("NO COVER")
+            added += 1
+
         self.content_offsets[kind] = offset + len(projects)
         self.content_has_more[kind] = len(projects) == 50
         self.content_loading[kind] = False
@@ -1058,6 +1175,22 @@ class MainWindow(QMainWindow):
         bar = self.content_lists[kind].verticalScrollBar()
         if self.content_has_more[kind] and (added == 0 or bar.maximum() <= 0):
             self.load_more_content(kind)
+
+    def set_content_cover(self, label, data):
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            label.setPixmap(
+                pixmap.scaled(
+                    label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            label.setText("")
+
+    def content_cover_failed(self, label, message):
+        label.setText("COVER")
+        label.setToolTip("Copertina non disponibile: " + message)
 
     def install_selected_content(self, kind):
         item = self.content_lists[kind].currentItem()
