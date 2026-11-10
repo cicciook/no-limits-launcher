@@ -1100,7 +1100,7 @@ class MainWindow(QMainWindow):
                 summary.setWordWrap(False)
                 details.addWidget(summary)
 
-            author = QLabel(" di " + project.get("author", "Autore sconosciuto"))
+            author = QLabel("CREATORE  " + project.get("author", "Autore sconosciuto"))
             author.setObjectName("ContentAuthor")
             versions = project.get("versions") or []
             version_text = " • ".join(versions[:3]) if versions else "Versioni varie"
@@ -1117,8 +1117,6 @@ class MainWindow(QMainWindow):
             open_page.clicked.connect(
                 lambda checked=False, url=project_url: webbrowser.open(url) if url else None
             )
-            right.addWidget(open_page, 0, Qt.AlignmentFlag.AlignRight)
-
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, project)
             item.setSizeHint(QSize(0, 112))
