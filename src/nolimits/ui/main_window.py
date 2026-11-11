@@ -452,26 +452,9 @@ class MainWindow(QMainWindow):
         self.stack.setStyleSheet("background: transparent;")
         left_v_layout.addWidget(self.stack, 1)
 
-        # SPAZIO PUBBLICITA IN BASSO AL CENTRO
-        self.ad_banner = QFrame()
-        self.ad_banner.setFixedHeight(70)
-        self.ad_banner.setStyleSheet("""
-            QFrame {
-                background: rgba(15, 11, 26, 0.85);
-                border: 1px dashed rgba(168, 85, 247, 0.4);
-                border-radius: 10px;
-            }
-        """)
-        ad_layout = QHBoxLayout(self.ad_banner)
-        ad_label = QLabel("spazio pubblicità")
-        ad_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;")
-        ad_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ad_layout.addWidget(ad_label)
-        left_v_layout.addWidget(self.ad_banner)
-
-        # BOTTOM BAR (Skin + Player + Avvio Rapido a sinistra)
-        bottom_bar = QHBoxLayout()
-        bottom_bar.setContentsMargins(0, 0, 0, 0)
+        # BARRA ACCESSO RAPIDO / PLAYER CHIP (SPOSTATA SOPRA LA PUBBLICITÀ)
+        quick_bar = QHBoxLayout()
+        quick_bar.setContentsMargins(0, 0, 0, 0)
         
         self.quick_player_chip = QFrame()
         self.quick_player_chip.setStyleSheet("""
@@ -532,13 +515,30 @@ class MainWindow(QMainWindow):
         self.quick_launch_btn.clicked.connect(self.quick_launch_instance)
         qp_layout.addWidget(self.quick_launch_btn)
         
-        bottom_bar.addWidget(self.quick_player_chip, 0, Qt.AlignmentFlag.AlignLeft)
-        bottom_bar.addStretch()
-        left_v_layout.addLayout(bottom_bar)
+        quick_bar.addWidget(self.quick_player_chip, 0, Qt.AlignmentFlag.AlignLeft)
+        quick_bar.addStretch()
+        left_v_layout.addLayout(quick_bar)
+
+        # SPAZIO PUBBLICITA IN BASSO AL CENTRO
+        self.ad_banner = QFrame()
+        self.ad_banner.setFixedHeight(65)
+        self.ad_banner.setStyleSheet("""
+            QFrame {
+                background: rgba(15, 11, 26, 0.85);
+                border: 1px dashed rgba(168, 85, 247, 0.4);
+                border-radius: 10px;
+            }
+        """)
+        ad_layout = QHBoxLayout(self.ad_banner)
+        ad_label = QLabel("spazio pubblicità")
+        ad_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;")
+        ad_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ad_layout.addWidget(ad_label)
+        left_v_layout.addWidget(self.ad_banner)
 
         main_h_layout.addWidget(self.left_container, 1)
 
-        # PANNELLO DESTRO (Pannello Amici & Server in Evidenza)
+        # PANNELLO DESTRO (Pannello Amici SENZA FAKE & Server in Evidenza)
         self.right_sidebar = QFrame()
         self.right_sidebar.setFixedWidth(260)
         self.right_sidebar.setStyleSheet("""
@@ -575,8 +575,8 @@ class MainWindow(QMainWindow):
         side_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; text-transform: uppercase;")
         right_layout.addWidget(side_title)
 
-        # Lista Amici
-        friends_lbl = QLabel("👥 AMICI ONLINE (2)")
+        # Lista Amici (Senza elementi fake)
+        friends_lbl = QLabel("👥 AMICI ONLINE (0)")
         friends_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
         right_layout.addWidget(friends_lbl)
 
@@ -585,8 +585,7 @@ class MainWindow(QMainWindow):
             QListWidget { background: transparent; border: none; }
             QListWidget::item { background: rgba(139, 92, 246, 0.1); border-radius: 6px; margin-bottom: 4px; padding: 6px; color: #ffffff; font-size: 11px; font-weight: 600; }
         """)
-        self.friends_list.addItem("🟢 Alex - In gioco su ATM9")
-        self.friends_list.addItem("🟡 Steve - Nel Menu Principale")
+        # Gli amici fake sono stati rimossi come richiesto
         right_layout.addWidget(self.friends_list, 1)
 
         # Server consigliati
@@ -689,7 +688,7 @@ class MainWindow(QMainWindow):
         sw_layout.addWidget(self.home_search_input, 1)
         p.layout().addLayout(sw_layout)
         
-        # Hero Carousel SENZA RIQUADRI ATTORNO ALL'IMMAGINE
+        # Hero Carousel
         self.hero_frame = QFrame()
         self.hero_frame.setObjectName("HeroFrame")
         self.hero_frame.setStyleSheet("""
@@ -761,7 +760,7 @@ class MainWindow(QMainWindow):
             self.dots.append(dot)
         p.layout().addLayout(self.dots_layout)
 
-        # Griglia Modpack SENZA RIQUADRI INTERNI
+        # Griglia Modpack
         grid_header = QHBoxLayout()
         gh_title = QLabel("★ Modpack in evidenza")
         gh_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
