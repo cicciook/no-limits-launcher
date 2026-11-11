@@ -23,7 +23,6 @@ APP_DIR = Path.home() / ".no-limits-launcher"
 CONFIG_FILE = APP_DIR / "config.json"
 DEFAULT_MICROSOFT_CLIENT_ID = "2055c8b7-8738-4ee0-a152-bc724edd35c4"
 
-# Ricerca dinamica del file Logo del launcher
 def find_logo_path():
     candidates = [
         Path(__file__).parent / "logo.png",
@@ -59,16 +58,6 @@ NAV_ART = {
     "Resource Pack": '<path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5"/>',
     "Impostazioni": '<circle cx="12" cy="12" r="3"/><path d="m19 13 2-1-2-1-.7-2 1-2-2-2-2 1-2-.7-1-2-1 2-2 .7-2-1-2 2 1 2-.7 2-2 1 2 1 .7 2-1 2 2 2 2-1 2 .7 1 2 1-2 2-.7 2 1 2-2-1-2z"/>'
 }
-
-def make_nav_icon(name):
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24"><g fill="none" stroke="#a855f7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{NAV_ART[name]}</g></svg>'
-    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    renderer.render(painter)
-    painter.end()
-    return QIcon(pixmap)
 
 class SkinHeadWorker(QThread):
     loaded = Signal(bytes)
@@ -320,8 +309,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("No Limits Launcher")
-        self.resize(1340, 840)
-        self.setMinimumSize(1020, 680)
+        self.resize(1380, 860)
+        self.setMinimumSize(1080, 720)
         self.setStyleSheet(DARK_STYLE)
         
         self.store = InstanceStore()
@@ -337,8 +326,8 @@ class MainWindow(QMainWindow):
         
         self.hero_index = 0
         self.hero_packs = [
-            {"title": "Fabulously Optimized", "desc": "Beautiful graphics, speedy performance and familiar features in a simple package.", "tags": ["Optimization", "Fabric", "Client"], "query": "Fabulously Optimized"},
             {"title": "Zombie Invade 100 Days", "desc": "Same as Forge Labs 100 Days Zombie Apocalypse in new Minecraft.", "tags": ["Combat", "Forge", "Hardcore"], "query": "Zombie Invade 100 Days"},
+            {"title": "Fabulously Optimized", "desc": "Beautiful graphics, speedy performance and familiar features in a simple package.", "tags": ["Optimization", "Fabric", "Client"], "query": "Fabulously Optimized"},
             {"title": "Cobblemon Official Modpack", "desc": "The official modpack of the Cobblemon mod, for Fabric!", "tags": ["Adventure", "Fabric", "Pokemon"], "query": "Cobblemon Official Modpack"},
             {"title": "COBBLEVERSE", "desc": "Start a true Pokémon adventure in Minecraft with starter kit and unique structures.", "tags": ["Adventure", "Fabric", "Pokemon"], "query": "COBBLEVERSE"},
             {"title": "BattleArmory TACZ", "desc": "Modern firearms with random spawns, CS and Call of Duty style weaponry.", "tags": ["Combat", "Forge", "Guns"], "query": "BattleArmory TACZ"}
@@ -350,29 +339,57 @@ class MainWindow(QMainWindow):
         
         self.root.setStyleSheet("""
             QWidget#Root {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0c0a18, stop:0.5 #140e26, stop:1 #090712);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0a0815, stop:0.5 #120d22, stop:1 #080610);
             }
         """)
         
-        outer = QVBoxLayout(self.root)
-        outer.setContentsMargins(20, 16, 20, 16)
-        outer.setSpacing(12)
-        
-        # BARRA SUPERIORE (Istanze + Navigazione + LOGO UFFICIALE)
+        main_h_layout = QHBoxLayout(self.root)
+        main_h_layout.setContentsMargins(16, 14, 16, 14)
+        main_h_layout.setSpacing(14)
+
+        # AREA PRINCIPALE CENTRALE / SINISTRA
+        self.left_container = QWidget()
+        left_v_layout = QVBoxLayout(self.left_container)
+        left_v_layout.setContentsMargins(0, 0, 0, 0)
+        left_v_layout.setSpacing(12)
+
+        # BARRA SUPERIORE (Logo in Alto a Sinistra + Navigation Bar)
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
         top_bar.setContentsMargins(0, 0, 0, 0)
         
-        # 1. Selettore Istanze
+        # 1. LOGO IN ALTO A SINISTRA
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(150, 40)
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
+        if LOGO_PATH and LOGO_PATH.exists():
+            if str(LOGO_PATH).endswith(".svg"):
+                renderer = QSvgRenderer(str(LOGO_PATH))
+                pixmap = QPixmap(150, 40)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.logo_label.setPixmap(pixmap)
+            else:
+                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(150, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
+            self.logo_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
+        
+        top_bar.addWidget(self.logo_label)
+
+        # Selettore Istanze accanto al logo
         self.top_instance_combo = QComboBox()
-        self.top_instance_combo.setMinimumWidth(180)
+        self.top_instance_combo.setMinimumWidth(160)
         self.top_instance_combo.setStyleSheet("""
             QComboBox {
                 background: rgba(139, 92, 246, 0.15);
                 border: 1px solid rgba(168, 85, 247, 0.4);
                 border-radius: 8px;
                 color: #e9d5ff;
-                padding: 6px 12px;
+                padding: 6px 10px;
                 font-weight: 700;
                 font-size: 12px;
             }
@@ -384,11 +401,10 @@ class MainWindow(QMainWindow):
                 selection-background-color: #8b5cf6;
             }
         """)
-        top_bar.addWidget(QLabel("<b style='color:#c084fc; font-size:12px;'>Instances:</b>"))
         top_bar.addWidget(self.top_instance_combo)
-        top_bar.addSpacing(6)
+        top_bar.addSpacing(10)
 
-        # 2. Pulsanti Navigazione (Account e Info spostati in Impostazioni)
+        # 2. Pulsanti Navigazione
         self.nav_bar = QFrame()
         self.nav_bar.setStyleSheet("background: transparent; border: none;")
         nav_layout = QHBoxLayout(self.nav_bar)
@@ -407,7 +423,7 @@ class MainWindow(QMainWindow):
                     border: 1px solid rgba(168, 85, 247, 0.25);
                     border-radius: 6px;
                     color: #d8b4fe;
-                    padding: 6px 14px;
+                    padding: 6px 12px;
                     font-weight: 700;
                     font-size: 12px;
                 }
@@ -429,37 +445,33 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.nav_bar)
         top_bar.addStretch()
         
-        # 3. LOGO IN ALTO A DESTRA (Rendering diretto del file o SVG)
-        self.logo_label = QLabel()
-        self.logo_label.setFixedSize(160, 44)
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        if LOGO_PATH and LOGO_PATH.exists():
-            if str(LOGO_PATH).endswith(".svg"):
-                renderer = QSvgRenderer(str(LOGO_PATH))
-                pixmap = QPixmap(160, 44)
-                pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(pixmap)
-                renderer.render(painter)
-                painter.end()
-                self.logo_label.setPixmap(pixmap)
-            else:
-                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(160, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            self.logo_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
-            
-        top_bar.addWidget(self.logo_label)
-        outer.addLayout(top_bar)
-        
-        # Stacked Widget per le varie schermate
+        left_v_layout.addLayout(top_bar)
+
+        # Stacked Widget per le schermate centrali
         self.stack = QStackedWidget()
         self.stack.setStyleSheet("background: transparent;")
-        outer.addWidget(self.stack, 1)
-        
-        # BOTTOM BAR (A sinistra: Skin + Player + Avvio Rapido)
+        left_v_layout.addWidget(self.stack, 1)
+
+        # SPAZIO PUBBLICITA IN BASSO AL CENTRO
+        self.ad_banner = QFrame()
+        self.ad_banner.setFixedHeight(70)
+        self.ad_banner.setStyleSheet("""
+            QFrame {
+                background: rgba(15, 11, 26, 0.85);
+                border: 1px dashed rgba(168, 85, 247, 0.4);
+                border-radius: 10px;
+            }
+        """)
+        ad_layout = QHBoxLayout(self.ad_banner)
+        ad_label = QLabel("spazio pubblicità")
+        ad_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;")
+        ad_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ad_layout.addWidget(ad_label)
+        left_v_layout.addWidget(self.ad_banner)
+
+        # BOTTOM BAR (Skin + Player + Avvio Rapido a sinistra)
         bottom_bar = QHBoxLayout()
-        bottom_bar.setContentsMargins(0, 4, 0, 0)
+        bottom_bar.setContentsMargins(0, 0, 0, 0)
         
         self.quick_player_chip = QFrame()
         self.quick_player_chip.setStyleSheet("""
@@ -508,7 +520,7 @@ class MainWindow(QMainWindow):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
                 color: #ffffff;
                 border-radius: 6px;
-                padding: 6px 14px;
+                padding: 6px 16px;
                 font-weight: 800;
                 font-size: 12px;
                 border: none;
@@ -522,8 +534,75 @@ class MainWindow(QMainWindow):
         
         bottom_bar.addWidget(self.quick_player_chip, 0, Qt.AlignmentFlag.AlignLeft)
         bottom_bar.addStretch()
-        outer.addLayout(bottom_bar)
-        
+        left_v_layout.addLayout(bottom_bar)
+
+        main_h_layout.addWidget(self.left_container, 1)
+
+        # PANNELLO DESTRO (Pannello Amici & Server in Evidenza)
+        self.right_sidebar = QFrame()
+        self.right_sidebar.setFixedWidth(260)
+        self.right_sidebar.setStyleSheet("""
+            QFrame {
+                background: rgba(18, 13, 33, 0.75);
+                border: 1px solid rgba(168, 85, 247, 0.3);
+                border-radius: 12px;
+            }
+            QLabel { border: none; background: transparent; }
+        """)
+        right_layout = QVBoxLayout(self.right_sidebar)
+        right_layout.setContentsMargins(14, 14, 14, 14)
+        right_layout.setSpacing(14)
+
+        # Header Destro: N NO LIMITS LAUNCHER
+        side_logo_lbl = QLabel("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
+        side_logo_lbl.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px;")
+        side_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(side_logo_lbl)
+
+        # Selettori CurseForge e Modrinth
+        provider_box = QHBoxLayout()
+        cf_btn = QPushButton("🟠 CurseForge")
+        cf_btn.setStyleSheet("background: rgba(255, 125, 50, 0.15); border: 1px solid rgba(255, 125, 50, 0.4); color: #ff7d32; border-radius: 6px; padding: 4px 8px; font-weight: 700; font-size: 10px;")
+        mr_btn = QPushButton("🟢 modrinth")
+        mr_btn.setStyleSheet("background: rgba(27, 217, 106, 0.15); border: 1px solid rgba(27, 217, 106, 0.4); color: #1bd96a; border-radius: 6px; padding: 4px 8px; font-weight: 700; font-size: 10px;")
+        provider_box.addWidget(cf_btn)
+        provider_box.addWidget(mr_btn)
+        right_layout.addLayout(provider_box)
+
+        # Titolo Pannello
+        side_title = QLabel("pannello amici,server in evidenza")
+        side_title.setWordWrap(True)
+        side_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; text-transform: uppercase;")
+        right_layout.addWidget(side_title)
+
+        # Lista Amici
+        friends_lbl = QLabel("👥 AMICI ONLINE (2)")
+        friends_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        right_layout.addWidget(friends_lbl)
+
+        self.friends_list = QListWidget()
+        self.friends_list.setStyleSheet("""
+            QListWidget { background: transparent; border: none; }
+            QListWidget::item { background: rgba(139, 92, 246, 0.1); border-radius: 6px; margin-bottom: 4px; padding: 6px; color: #ffffff; font-size: 11px; font-weight: 600; }
+        """)
+        self.friends_list.addItem("🟢 Alex - In gioco su ATM9")
+        self.friends_list.addItem("🟡 Steve - Nel Menu Principale")
+        right_layout.addWidget(self.friends_list, 1)
+
+        # Server consigliati
+        servers_lbl = QLabel("🌐 SERVER CONSIGLIATI")
+        servers_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        right_layout.addWidget(servers_lbl)
+
+        server_btn1 = QPushButton("🎮 No Limits SMP [1.20.1]")
+        server_btn1.setStyleSheet("background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(168, 85, 247, 0.4); color: #ffffff; border-radius: 6px; padding: 8px; font-weight: 700; text-align: left;")
+        server_btn2 = QPushButton("⚔️ Cobblemon Italia")
+        server_btn2.setStyleSheet("background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(168, 85, 247, 0.4); color: #ffffff; border-radius: 6px; padding: 8px; font-weight: 700; text-align: left;")
+        right_layout.addWidget(server_btn1)
+        right_layout.addWidget(server_btn2)
+
+        main_h_layout.addWidget(self.right_sidebar)
+
         self.pages = {}
         for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
             page = QWidget()
@@ -608,17 +687,7 @@ class MainWindow(QMainWindow):
         
         sw_layout.addWidget(search_icon)
         sw_layout.addWidget(self.home_search_input, 1)
-        
-        cf_btn = QPushButton("🟠 CurseForge")
-        cf_btn.setStyleSheet("background: rgba(255, 125, 50, 0.15); border: 1px solid rgba(255, 125, 50, 0.4); color: #ff7d32; border-radius: 8px; padding: 6px 14px; font-weight: 700;")
-        
-        mr_btn = QPushButton("🟢 modrinth")
-        mr_btn.setStyleSheet("background: rgba(27, 217, 106, 0.15); border: 1px solid rgba(27, 217, 106, 0.4); color: #1bd96a; border-radius: 8px; padding: 6px 14px; font-weight: 700;")
-        
-        top_bar.addWidget(search_wrap, 1)
-        top_bar.addWidget(cf_btn)
-        top_bar.addWidget(mr_btn)
-        p.layout().addLayout(top_bar)
+        p.layout().addLayout(sw_layout)
         
         # Hero Carousel SENZA RIQUADRI ATTORNO ALL'IMMAGINE
         self.hero_frame = QFrame()
@@ -633,28 +702,27 @@ class MainWindow(QMainWindow):
         """)
 
         h_layout = QHBoxLayout(self.hero_frame)
-        h_layout.setContentsMargins(24, 24, 24, 24)
+        h_layout.setContentsMargins(20, 20, 20, 20)
         h_layout.setSpacing(20)
 
         self.hero_content = QFrame()
         self.hero_content.setStyleSheet("background: transparent; border: none;")
         content_layout = QHBoxLayout(self.hero_content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(24)
+        content_layout.setSpacing(20)
 
-        # Immagine pulita senza box o bordi
-        self.hero_cover = CoverLabel("Fabulously Optimized")
-        self.hero_cover.setFixedSize(260, 150)
+        self.hero_cover = CoverLabel("Zombie Invade 100 Days")
+        self.hero_cover.setFixedSize(240, 140)
         self.hero_cover.setStyleSheet("background: transparent; border: none;")
         content_layout.addWidget(self.hero_cover)
 
         hero_info = QVBoxLayout()
-        hero_info.setSpacing(10)
+        hero_info.setSpacing(8)
 
-        self.hero_title_lbl = QLabel("Fabulously Optimized")
-        self.hero_title_lbl.setStyleSheet("font-size: 26px; font-weight: 900; color: #ffffff;")
+        self.hero_title_lbl = QLabel("Zombie Invade 100 Days")
+        self.hero_title_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ffffff;")
 
-        self.hero_desc_lbl = QLabel("Beautiful graphics, speedy performance and familiar features in a simple package.")
+        self.hero_desc_lbl = QLabel("Same as Forge Labs 100 Days Zombie Apocalypse in new Minecraft.")
         self.hero_desc_lbl.setStyleSheet("color: #ddd6fe; font-size: 13px;")
         self.hero_desc_lbl.setWordWrap(True)
 
@@ -664,14 +732,14 @@ class MainWindow(QMainWindow):
         download_btn = QPushButton("📥 Scarica")
         download_btn.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7); "
-            "color: #ffffff; border-radius: 8px; padding: 10px 28px; font-weight: 700; font-size: 13px; border: none;"
+            "color: #ffffff; border-radius: 8px; padding: 8px 24px; font-weight: 700; font-size: 13px; border: none;"
         )
         download_btn.clicked.connect(lambda: self.navigate("Catalogo"))
 
         hero_info.addWidget(self.hero_title_lbl)
         hero_info.addWidget(self.hero_desc_lbl)
         hero_info.addLayout(self.tags_layout)
-        hero_info.addSpacing(6)
+        hero_info.addSpacing(4)
         hero_info.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignLeft)
         hero_info.addStretch()
 
@@ -693,12 +761,12 @@ class MainWindow(QMainWindow):
             self.dots.append(dot)
         p.layout().addLayout(self.dots_layout)
 
-        # Griglia Modpack SENZA RIQUADRI ATTORNO ALLE IMMAGINI
+        # Griglia Modpack SENZA RIQUADRI INTERNI
         grid_header = QHBoxLayout()
         gh_title = QLabel("★ Modpack in evidenza")
-        gh_title.setStyleSheet("font-size: 17px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
+        gh_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
         see_all = QPushButton("Vedi tutti →")
-        see_all.setStyleSheet("background: transparent; border: none; color: #c084fc; font-weight: 700; font-size: 13px;")
+        see_all.setStyleSheet("background: transparent; border: none; color: #c084fc; font-weight: 700; font-size: 12px;")
         see_all.clicked.connect(lambda: self.navigate("Catalogo"))
         grid_header.addWidget(gh_title)
         grid_header.addStretch()
@@ -706,7 +774,7 @@ class MainWindow(QMainWindow):
         p.layout().addLayout(grid_header)
         
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(16)
+        grid_layout.setSpacing(12)
         
         self.grid_cards = {}
         featured_packs = [
@@ -730,20 +798,19 @@ class MainWindow(QMainWindow):
                 }
             """)
             c_box = QVBoxLayout(card)
-            c_box.setContentsMargins(12, 12, 12, 12)
-            c_box.setSpacing(8)
+            c_box.setContentsMargins(10, 10, 10, 10)
+            c_box.setSpacing(6)
             
-            # Immagine totalmente priva di box interno
             c_img = CoverLabel(p_name)
-            c_img.setFixedHeight(125)
+            c_img.setFixedHeight(110)
             c_img.setMinimumWidth(0)
             c_img.setStyleSheet("background: transparent; border: none;")
             
             c_title = QLabel(p_name)
-            c_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #ffffff;")
+            c_title.setStyleSheet("font-weight: 700; font-size: 12px; color: #ffffff;")
             
             c_meta = QLabel(f"🌐 {p_ver}   ★ {p_loader}")
-            c_meta.setStyleSheet("font-size: 11px; color: #a78bfa; font-weight: 600;")
+            c_meta.setStyleSheet("font-size: 10px; color: #a78bfa; font-weight: 600;")
             
             c_box.addWidget(c_img)
             c_box.addWidget(c_title)
@@ -864,15 +931,15 @@ class MainWindow(QMainWindow):
 
     def load_modrinth_images(self):
         queries = {
-            "Fabulously Optimized": {
-                "query": "Fabulously Optimized",
-                "title": "Fabulously Optimized",
-                "project_slugs": ["fabulously-optimized"],
-            },
             "Zombie Invade 100 Days": {
                 "query": "Zombie Invade 100 Days",
                 "title": "Zombie Invade 100 Days",
                 "project_slugs": ["zombie-invade-100-days"],
+            },
+            "Fabulously Optimized": {
+                "query": "Fabulously Optimized",
+                "title": "Fabulously Optimized",
+                "project_slugs": ["fabulously-optimized"],
             },
             "Cobblemon Official Modpack": {
                 "query": "Cobblemon Official Modpack",
@@ -1013,7 +1080,6 @@ class MainWindow(QMainWindow):
                 kind = {"Mod": "mod", "Shader": "shader", "Resource Pack": "resourcepack"}[name]
                 self.build_content_page(name, kind)
 
-    # COSTRUZIONE PAGINA IMPOSTAZIONI (Con Account e Info integrati)
     def build_settings_page(self):
         p = self.pages["Impostazioni"]
         self.page_header("Impostazioni", "Impostazioni Launcher", "Gestisci il tuo profilo, l'account Microsoft e le opzioni di sistema.")
@@ -1040,7 +1106,6 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        # Tab 1: Account
         account_tab = QWidget()
         at_layout = QVBoxLayout(account_tab)
         at_layout.setContentsMargins(16, 16, 16, 16)
@@ -1071,7 +1136,6 @@ class MainWindow(QMainWindow):
         at_layout.addWidget(offline)
         at_layout.addStretch()
         
-        # Tab 2: Info Launcher
         info_tab = QWidget()
         it_layout = QVBoxLayout(info_tab)
         it_layout.setContentsMargins(16, 16, 16, 16)
