@@ -553,11 +553,25 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(14, 14, 14, 14)
         right_layout.setSpacing(14)
 
-        # Header Destro: N NO LIMITS LAUNCHER
-        side_logo_lbl = QLabel("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-        side_logo_lbl.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px;")
-        side_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right_layout.addWidget(side_logo_lbl)
+        # Header Destro: logo del launcher
+        side_logo_lbl = QLabel()
+        side_logo_lbl.setFixedSize(150, 40)
+        side_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if LOGO_PATH and LOGO_PATH.exists():
+            if str(LOGO_PATH).endswith(".svg"):
+                renderer = QSvgRenderer(str(LOGO_PATH))
+                pixmap = QPixmap(150, 40)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                side_logo_lbl.setPixmap(pixmap)
+            else:
+                side_logo_lbl.setPixmap(QPixmap(str(LOGO_PATH)).scaled(
+                    150, 40, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                ))
+        right_layout.addWidget(side_logo_lbl, 0, Qt.AlignmentFlag.AlignRight)
 
         # Selettori CurseForge e Modrinth
         provider_box = QHBoxLayout()
