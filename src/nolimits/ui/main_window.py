@@ -25,9 +25,11 @@ DEFAULT_MICROSOFT_CLIENT_ID = "2055c8b7-8738-4ee0-a152-bc724edd35c4"
 
 def find_logo_path():
     candidates = [
-        Path(__file__).parent / "logo.png",
         Path(__file__).parent / "logo.svg",
+        Path(__file__).parent / "logo.png",
+        Path("src/nolimits/ui/logo.svg"),
         Path("src/nolimits/ui/logo.png"),
+        Path("logo.svg"),
         Path("logo.png")
     ]
     for p in candidates:
@@ -358,25 +360,26 @@ class MainWindow(QMainWindow):
         top_bar.setSpacing(12)
         top_bar.setContentsMargins(0, 0, 0, 0)
         
-        # 1. LOGO IN ALTO A SINISTRA
+        # 1. LOGO IN ALTO A SINISTRA (Ingrandito e Trasparente)
         self.logo_label = QLabel()
-        self.logo_label.setFixedSize(150, 40)
+        self.logo_label.setFixedSize(220, 56)
+        self.logo_label.setStyleSheet("background: transparent; border: none;")
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         
         if LOGO_PATH and LOGO_PATH.exists():
             if str(LOGO_PATH).endswith(".svg"):
                 renderer = QSvgRenderer(str(LOGO_PATH))
-                pixmap = QPixmap(150, 40)
+                pixmap = QPixmap(220, 56)
                 pixmap.fill(Qt.GlobalColor.transparent)
                 painter = QPainter(pixmap)
                 renderer.render(painter)
                 painter.end()
                 self.logo_label.setPixmap(pixmap)
             else:
-                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(150, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(220, 56, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
             self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            self.logo_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
+            self.logo_label.setStyleSheet("font-size: 14px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
         
         top_bar.addWidget(self.logo_label)
 
@@ -553,24 +556,26 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(14, 14, 14, 14)
         right_layout.setSpacing(14)
 
-        # Header Destro: logo del launcher
+        # Header Destro: LOGO INGRANDITO
         side_logo_lbl = QLabel()
-        side_logo_lbl.setFixedSize(150, 40)
+        side_logo_lbl.setFixedSize(200, 48)
+        side_logo_lbl.setStyleSheet("background: transparent; border: none;")
         side_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if LOGO_PATH and LOGO_PATH.exists():
             if str(LOGO_PATH).endswith(".svg"):
                 renderer = QSvgRenderer(str(LOGO_PATH))
-                pixmap = QPixmap(150, 40)
+                pixmap = QPixmap(200, 48)
                 pixmap.fill(Qt.GlobalColor.transparent)
                 painter = QPainter(pixmap)
                 renderer.render(painter)
                 painter.end()
                 side_logo_lbl.setPixmap(pixmap)
             else:
-                side_logo_lbl.setPixmap(QPixmap(str(LOGO_PATH)).scaled(
-                    150, 40, Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                ))
+                side_logo_lbl.setPixmap(QPixmap(str(LOGO_PATH)).scaled(200, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            side_logo_lbl.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
+            side_logo_lbl.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px;")
+        
         right_layout.addWidget(side_logo_lbl, 0, Qt.AlignmentFlag.AlignRight)
 
         # Selettori CurseForge e Modrinth
@@ -589,7 +594,7 @@ class MainWindow(QMainWindow):
         side_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; text-transform: uppercase;")
         right_layout.addWidget(side_title)
 
-        # Lista Amici (Senza elementi fake)
+        # Lista Amici
         friends_lbl = QLabel("👥 AMICI ONLINE (0)")
         friends_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
         right_layout.addWidget(friends_lbl)
@@ -599,7 +604,6 @@ class MainWindow(QMainWindow):
             QListWidget { background: transparent; border: none; }
             QListWidget::item { background: rgba(139, 92, 246, 0.1); border-radius: 6px; margin-bottom: 4px; padding: 6px; color: #ffffff; font-size: 11px; font-weight: 600; }
         """)
-        # Gli amici fake sono stati rimossi come richiesto
         right_layout.addWidget(self.friends_list, 1)
 
         # Server consigliati
