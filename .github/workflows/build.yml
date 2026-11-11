@@ -35,7 +35,9 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src
       - name: Build desktop app
-        run: pyinstaller --noconfirm --clean --windowed --name "No Limits Launcher" --paths src src/nolimits/__main__.py
+        shell: bash
+        run: |
+          python -c 'import os; import PyInstaller.__main__; PyInstaller.__main__.run(["--noconfirm", "--clean", "--windowed", "--name", "No Limits Launcher", "--paths", "src", "--add-data", "src/nolimits/ui/logo.png" + os.pathsep + "nolimits/ui", "src/nolimits/__main__.py"])'
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
