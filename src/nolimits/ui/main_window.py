@@ -4,8 +4,8 @@ import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor
-from PySide6.QtWidgets import QGraphicsOpacityEffect
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QSizePolicy
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -137,12 +137,99 @@ class HeroDataWorker(QThread):
             except Exception:
                 continue
 
+def repolish(widget):
+    """Forza Qt a rivalutare lo stile dopo il cambio di una proprietà dinamica."""
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    widget.update()
+
+
+def rounded_pixmap(source, size, radius):
+    """Ritaglia `source` a riempimento (stile cover) dentro un rettangolo arrotondato, a 2x per i display HiDPI."""
+    dpr = 2.0
+    width, height = max(1, size.width()), max(1, size.height())
+    target = QSize(int(width * dpr), int(height * dpr))
+    scaled = source.scaled(
+        target,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    result = QPixmap(target)
+    result.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(result)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, target.width(), target.height(), radius * dpr, radius * dpr)
+    painter.setClipPath(path)
+    painter.drawPixmap(
+        (target.width() - scaled.width()) // 2,
+        (target.height() - scaled.height()) // 2,
+        scaled,
+    )
+    painter.end()
+    result.setDevicePixelRatio(dpr)
+    return result
+
+
+def load_logo_pixmap(width, dpr=2.0):
+    """Logo nitido a qualsiasi densità di pixel, con altezza calcolata dal rapporto originale."""
+    if not LOGO_PATH or not LOGO_PATH.exists():
+        return None
+    if LOGO_PATH.suffix.lower() == ".svg":
+        renderer = QSvgRenderer(str(LOGO_PATH))
+        box = renderer.viewBoxF()
+        ratio = box.height() / box.width() if box.width() > 0 else 0.24
+        pixmap = QPixmap(int(width * dpr), max(1, int(width * ratio * dpr)))
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter)
+        painter.end()
+    else:
+        pixmap = QPixmap(str(LOGO_PATH))
+        if pixmap.isNull():
+            return None
+        pixmap = pixmap.scaledToWidth(int(width * dpr), Qt.TransformationMode.SmoothTransformation)
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def nav_icon(name, idle="#a59cc9", active="#ffffff", size=18):
+    """Icona di navigazione a due stati (normale / selezionata) generata dagli SVG di NAV_ART."""
+    icon = QIcon()
+    shapes = NAV_ART.get(name)
+    if not shapes:
+        return icon
+    for color, state in ((idle, QIcon.State.Off), (active, QIcon.State.On)):
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+            f'stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{shapes}</svg>'
+        )
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        pixmap = QPixmap(size * 2, size * 2)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter)
+        painter.end()
+        pixmap.setDevicePixelRatio(2.0)
+        icon.addPixmap(pixmap, QIcon.Mode.Normal, state)
+    return icon
+
+
 class CoverLabel(QLabel):
-    def __init__(self, placeholder="", parent=None):
+    """Copertina con angoli arrotondati che riempie tutto lo spazio a disposizione."""
+
+    def __init__(self, placeholder="", radius=14, parent=None):
         super().__init__(placeholder, parent)
         self._source_pixmap = None
         self._placeholder = placeholder
+        self._radius = radius
+        self.setObjectName("CoverLabel")
+        self.setWordWrap(True)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
     def set_placeholder(self, text):
         self._placeholder = text
@@ -165,12 +252,20 @@ class CoverLabel(QLabel):
     def _render_cover(self):
         if self._source_pixmap is None or self.width() <= 0 or self.height() <= 0:
             return
-        scaled = self._source_pixmap.scaled(
-            self.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.setPixmap(scaled)
+        self.setPixmap(rounded_pixmap(self._source_pixmap, self.size(), self._radius))
+
+
+class ClickableFrame(QFrame):
+    clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
 class SearchWorker(QThread):
     completed = Signal(list)
@@ -234,14 +329,31 @@ class CoverWorker(QThread):
             self.failed.emit(self.item, str(exc))
 
 class ContentResultCard(QFrame):
+    """Card di un risultato dentro una QListWidget: evidenzia la selezione e inoltra il doppio click."""
+
     def __init__(self, list_widget, item):
         super().__init__()
         self.list_widget = list_widget
         self.item = item
+        self.setObjectName("ResultCard")
+        self.setProperty("selected", "false")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        list_widget.currentItemChanged.connect(self._sync_selection)
+
+    def _sync_selection(self, current, _previous=None):
+        try:
+            self.setProperty("selected", "true" if current is not None and current is self.item else "false")
+            repolish(self)
+        except RuntimeError:
+            pass  # la card è già stata distrutta insieme alla lista
 
     def mousePressEvent(self, event):
         self.list_widget.setCurrentItem(self.item)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        self.list_widget.itemDoubleClicked.emit(self.item)
+        super().mouseDoubleClickEvent(event)
 
 class InstallWorker(QThread):
     completed = Signal(dict)
@@ -308,13 +420,19 @@ class SessionWorker(QThread):
             self.failed.emit(str(exc))
 
 class MainWindow(QMainWindow):
+    NAV_GROUPS = [
+        ("ESPLORA", ["Home", "Catalogo"]),
+        ("LIBRERIA", ["Le mie istanze", "Mod", "Shader", "Resource Pack"]),
+        ("SISTEMA", ["Console", "Impostazioni"]),
+    ]
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("No Limits Launcher")
-        self.resize(1380, 860)
-        self.setMinimumSize(1080, 720)
+        self.resize(1400, 880)
+        self.setMinimumSize(1120, 720)
         self.setStyleSheet(DARK_STYLE)
-        
+
         self.store = InstanceStore()
         self.config = load_config()
         self.account = None
@@ -325,7 +443,7 @@ class MainWindow(QMainWindow):
         self.launch_worker = None
         self.skin_worker = None
         self.cover_workers = []
-        
+
         self.hero_index = 0
         self.hero_packs = [
             {"title": "Zombie Invade 100 Days", "desc": "Same as Forge Labs 100 Days Zombie Apocalypse in new Minecraft.", "tags": ["Combat", "Forge", "Hardcore"], "query": "Zombie Invade 100 Days"},
@@ -334,291 +452,29 @@ class MainWindow(QMainWindow):
             {"title": "COBBLEVERSE", "desc": "Start a true Pokémon adventure in Minecraft with starter kit and unique structures.", "tags": ["Adventure", "Fabric", "Pokemon"], "query": "COBBLEVERSE"},
             {"title": "BattleArmory TACZ", "desc": "Modern firearms with random spawns, CS and Call of Duty style weaponry.", "tags": ["Combat", "Forge", "Guns"], "query": "BattleArmory TACZ"}
         ]
-        
+
         self.root = QWidget()
         self.root.setObjectName("Root")
         self.setCentralWidget(self.root)
-        
-        self.root.setStyleSheet("""
-            QWidget#Root {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0a0815, stop:0.5 #120d22, stop:1 #080610);
-            }
-        """)
-        
-        main_h_layout = QHBoxLayout(self.root)
-        main_h_layout.setContentsMargins(16, 14, 16, 14)
-        main_h_layout.setSpacing(14)
 
-        # AREA PRINCIPALE CENTRALE / SINISTRA
-        self.left_container = QWidget()
-        left_v_layout = QVBoxLayout(self.left_container)
-        left_v_layout.setContentsMargins(0, 0, 0, 0)
-        left_v_layout.setSpacing(12)
+        main_layout = QHBoxLayout(self.root)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(16)
 
-        # BARRA SUPERIORE (Logo in Alto a Sinistra + Navigation Bar)
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
-        top_bar.setContentsMargins(0, 0, 0, 0)
-        
-        # 1. LOGO IN ALTO A SINISTRA (Ingrandito e Trasparente)
-        self.logo_label = QLabel()
-        self.logo_label.setFixedSize(220, 56)
-        self.logo_label.setStyleSheet("background: transparent; border: none;")
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        
-        if LOGO_PATH and LOGO_PATH.exists():
-            if str(LOGO_PATH).endswith(".svg"):
-                renderer = QSvgRenderer(str(LOGO_PATH))
-                pixmap = QPixmap(220, 56)
-                pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(pixmap)
-                renderer.render(painter)
-                painter.end()
-                self.logo_label.setPixmap(pixmap)
-            else:
-                self.logo_label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(220, 56, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            self.logo_label.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            self.logo_label.setStyleSheet("font-size: 14px; font-weight: 900; color: #c084fc; letter-spacing: 1px; background: transparent;")
-        
-        top_bar.addWidget(self.logo_label)
+        # Colonna sinistra: logo, navigazione a gruppi, profilo giocatore
+        main_layout.addWidget(self._build_sidebar())
 
-        # Selettore Istanze accanto al logo
-        self.top_instance_combo = QComboBox()
-        self.top_instance_combo.setMinimumWidth(160)
-        self.top_instance_combo.setStyleSheet("""
-            QComboBox {
-                background: rgba(139, 92, 246, 0.15);
-                border: 1px solid rgba(168, 85, 247, 0.4);
-                border-radius: 8px;
-                color: #e9d5ff;
-                padding: 6px 10px;
-                font-weight: 700;
-                font-size: 12px;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background: #18122b;
-                border: 1px solid #7e22ce;
-                color: #ffffff;
-                selection-background-color: #8b5cf6;
-            }
-        """)
-        top_bar.addWidget(self.top_instance_combo)
-        top_bar.addSpacing(10)
-
-        # 2. Pulsanti Navigazione
-        self.nav_bar = QFrame()
-        self.nav_bar.setStyleSheet("background: transparent; border: none;")
-        nav_layout = QHBoxLayout(self.nav_bar)
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(6)
-        
-        self.nav_buttons = {}
-        for label in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
-            btn = QPushButton(label)
-            btn.setObjectName("Nav")
-            btn.setCheckable(True)
-            btn.setAutoExclusive(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.05);
-                    border: 1px solid rgba(168, 85, 247, 0.25);
-                    border-radius: 6px;
-                    color: #d8b4fe;
-                    padding: 6px 12px;
-                    font-weight: 700;
-                    font-size: 12px;
-                }
-                QPushButton:checked {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
-                    color: #ffffff;
-                    border: 1px solid #c084fc;
-                }
-                QPushButton:hover:!checked {
-                    background: rgba(168, 85, 247, 0.2);
-                    color: #ffffff;
-                }
-            """)
-            btn.clicked.connect(lambda checked=False, n=label: self.navigate(n))
-            nav_layout.addWidget(btn)
-            self.nav_buttons[label] = btn
-            
-        self.nav_buttons["Home"].setChecked(True)
-        top_bar.addWidget(self.nav_bar)
-        top_bar.addStretch()
-        
-        left_v_layout.addLayout(top_bar)
-
-        # Stacked Widget per le schermate centrali
+        # Colonna centrale: pagine + barra "Gioca" + spazio pubblicitario
+        center = QVBoxLayout()
+        center.setSpacing(14)
         self.stack = QStackedWidget()
-        self.stack.setStyleSheet("background: transparent;")
-        left_v_layout.addWidget(self.stack, 1)
+        center.addWidget(self.stack, 1)
+        center.addWidget(self._build_play_bar())
+        center.addWidget(self._build_ad_banner())
+        main_layout.addLayout(center, 1)
 
-        # BARRA ACCESSO RAPIDO / PLAYER CHIP (SPOSTATA SOPRA LA PUBBLICITÀ)
-        quick_bar = QHBoxLayout()
-        quick_bar.setContentsMargins(0, 0, 0, 0)
-        
-        self.quick_player_chip = QFrame()
-        self.quick_player_chip.setStyleSheet("""
-            QFrame {
-                background: rgba(24, 18, 43, 0.75);
-                border: 1px solid rgba(168, 85, 247, 0.35);
-                border-radius: 10px;
-            }
-        """)
-        qp_layout = QHBoxLayout(self.quick_player_chip)
-        qp_layout.setContentsMargins(8, 4, 12, 4)
-        qp_layout.setSpacing(10)
-        
-        self.skin_head = QLabel("👤")
-        self.skin_head.setFixedSize(32, 32)
-        self.skin_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.skin_head.setStyleSheet("""
-            QLabel {
-                border-radius: 6px;
-                background: #3b0764;
-                color: #c084fc;
-                font-size: 16px;
-                border: 1px solid rgba(168, 85, 247, 0.4);
-            }
-        """)
-        qp_layout.addWidget(self.skin_head)
-        
-        user_info_box = QVBoxLayout()
-        user_info_box.setSpacing(0)
-        user_info_box.setContentsMargins(0, 0, 0, 0)
-        
-        self.account_label = QLabel("cicciook")
-        self.account_label.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; background: transparent; border: none;")
-        self.status_label = QLabel("• Online")
-        self.status_label.setStyleSheet("font-size: 10px; color: #4ade80; background: transparent; border: none;")
-        
-        user_info_box.addWidget(self.account_label)
-        user_info_box.addWidget(self.status_label)
-        qp_layout.addLayout(user_info_box)
-        
-        qp_layout.addSpacing(6)
-        
-        self.quick_launch_btn = QPushButton("⚡ Avvio rapido")
-        self.quick_launch_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
-                color: #ffffff;
-                border-radius: 6px;
-                padding: 6px 16px;
-                font-weight: 800;
-                font-size: 12px;
-                border: none;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #9333ea);
-            }
-        """)
-        self.quick_launch_btn.clicked.connect(self.quick_launch_instance)
-        qp_layout.addWidget(self.quick_launch_btn)
-        
-        quick_bar.addWidget(self.quick_player_chip, 0, Qt.AlignmentFlag.AlignLeft)
-        quick_bar.addStretch()
-        left_v_layout.addLayout(quick_bar)
-
-        # SPAZIO PUBBLICITA IN BASSO AL CENTRO
-        self.ad_banner = QFrame()
-        self.ad_banner.setFixedHeight(65)
-        self.ad_banner.setStyleSheet("""
-            QFrame {
-                background: rgba(15, 11, 26, 0.85);
-                border: 1px dashed rgba(168, 85, 247, 0.4);
-                border-radius: 10px;
-            }
-        """)
-        ad_layout = QHBoxLayout(self.ad_banner)
-        ad_label = QLabel("spazio pubblicità")
-        ad_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;")
-        ad_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ad_layout.addWidget(ad_label)
-        left_v_layout.addWidget(self.ad_banner)
-
-        main_h_layout.addWidget(self.left_container, 1)
-
-        # PANNELLO DESTRO (Pannello Amici SENZA FAKE & Server in Evidenza)
-        self.right_sidebar = QFrame()
-        self.right_sidebar.setFixedWidth(260)
-        self.right_sidebar.setStyleSheet("""
-            QFrame {
-                background: rgba(18, 13, 33, 0.75);
-                border: 1px solid rgba(168, 85, 247, 0.3);
-                border-radius: 12px;
-            }
-            QLabel { border: none; background: transparent; }
-        """)
-        right_layout = QVBoxLayout(self.right_sidebar)
-        right_layout.setContentsMargins(14, 14, 14, 14)
-        right_layout.setSpacing(14)
-
-        # Header Destro: LOGO INGRANDITO
-        side_logo_lbl = QLabel()
-        side_logo_lbl.setFixedSize(200, 48)
-        side_logo_lbl.setStyleSheet("background: transparent; border: none;")
-        side_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        if LOGO_PATH and LOGO_PATH.exists():
-            if str(LOGO_PATH).endswith(".svg"):
-                renderer = QSvgRenderer(str(LOGO_PATH))
-                pixmap = QPixmap(200, 48)
-                pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(pixmap)
-                renderer.render(painter)
-                painter.end()
-                side_logo_lbl.setPixmap(pixmap)
-            else:
-                side_logo_lbl.setPixmap(QPixmap(str(LOGO_PATH)).scaled(200, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            side_logo_lbl.setText("Ｎ NO LIMITS\nＬＡＵＮＣＨＥＲ")
-            side_logo_lbl.setStyleSheet("font-size: 12px; font-weight: 900; color: #c084fc; letter-spacing: 1px;")
-        
-        right_layout.addWidget(side_logo_lbl, 0, Qt.AlignmentFlag.AlignRight)
-
-        # Selettori CurseForge e Modrinth
-        provider_box = QHBoxLayout()
-        cf_btn = QPushButton("🟠 CurseForge")
-        cf_btn.setStyleSheet("background: rgba(255, 125, 50, 0.15); border: 1px solid rgba(255, 125, 50, 0.4); color: #ff7d32; border-radius: 6px; padding: 4px 8px; font-weight: 700; font-size: 10px;")
-        mr_btn = QPushButton("🟢 modrinth")
-        mr_btn.setStyleSheet("background: rgba(27, 217, 106, 0.15); border: 1px solid rgba(27, 217, 106, 0.4); color: #1bd96a; border-radius: 6px; padding: 4px 8px; font-weight: 700; font-size: 10px;")
-        provider_box.addWidget(cf_btn)
-        provider_box.addWidget(mr_btn)
-        right_layout.addLayout(provider_box)
-
-        # Titolo Pannello
-        side_title = QLabel("pannello amici,server in evidenza")
-        side_title.setWordWrap(True)
-        side_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #ffffff; text-transform: uppercase;")
-        right_layout.addWidget(side_title)
-
-        # Lista Amici
-        friends_lbl = QLabel("👥 AMICI ONLINE (0)")
-        friends_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
-        right_layout.addWidget(friends_lbl)
-
-        self.friends_list = QListWidget()
-        self.friends_list.setStyleSheet("""
-            QListWidget { background: transparent; border: none; }
-            QListWidget::item { background: rgba(139, 92, 246, 0.1); border-radius: 6px; margin-bottom: 4px; padding: 6px; color: #ffffff; font-size: 11px; font-weight: 600; }
-        """)
-        right_layout.addWidget(self.friends_list, 1)
-
-        # Server consigliati
-        servers_lbl = QLabel("🌐 SERVER CONSIGLIATI")
-        servers_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
-        right_layout.addWidget(servers_lbl)
-
-        server_btn1 = QPushButton("🎮 No Limits SMP [1.20.1]")
-        server_btn1.setStyleSheet("background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(168, 85, 247, 0.4); color: #ffffff; border-radius: 6px; padding: 8px; font-weight: 700; text-align: left;")
-        server_btn2 = QPushButton("⚔️ Cobblemon Italia")
-        server_btn2.setStyleSheet("background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(168, 85, 247, 0.4); color: #ffffff; border-radius: 6px; padding: 8px; font-weight: 700; text-align: left;")
-        right_layout.addWidget(server_btn1)
-        right_layout.addWidget(server_btn2)
-
-        main_h_layout.addWidget(self.right_sidebar)
+        # Colonna destra: community
+        main_layout.addWidget(self._build_right_panel())
 
         self.pages = {}
         for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
@@ -628,7 +484,7 @@ class MainWindow(QMainWindow):
             page_layout.setSpacing(14)
             self.pages[name] = page
             self.stack.addWidget(page)
-            
+
         self.build_home()
         self.build_catalog()
         self.build_instances()
@@ -639,130 +495,273 @@ class MainWindow(QMainWindow):
         self.restore_session()
         self.load_modrinth_images()
 
+    # ------------------------------------------------------------------ shell
+    def _build_sidebar(self):
+        sidebar = QFrame()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(232)
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(14, 20, 14, 14)
+        layout.setSpacing(2)
+
+        self.logo_label = QLabel()
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo = load_logo_pixmap(192)
+        if logo:
+            ratio = logo.devicePixelRatio()
+            self.logo_label.setPixmap(logo)
+            self.logo_label.setFixedSize(int(logo.width() / ratio), int(logo.height() / ratio))
+        else:
+            self.logo_label.setText("NO LIMITS\nLAUNCHER")
+            self.logo_label.setStyleSheet("font-size: 20px; font-weight: 900; color: #c084fc;")
+        layout.addWidget(self.logo_label, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(10)
+
+        self.nav_buttons = {}
+        for caption, names in self.NAV_GROUPS:
+            cap = QLabel(caption)
+            cap.setObjectName("SectionCap")
+            layout.addWidget(cap)
+            for label in names:
+                btn = QPushButton("  " + label)
+                btn.setObjectName("Nav")
+                btn.setCheckable(True)
+                btn.setAutoExclusive(True)
+                btn.setIcon(nav_icon(label))
+                btn.setIconSize(QSize(18, 18))
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda checked=False, n=label: self.navigate(n))
+                layout.addWidget(btn)
+                self.nav_buttons[label] = btn
+        self.nav_buttons["Home"].setChecked(True)
+
+        layout.addStretch(1)
+
+        chip = QFrame()
+        chip.setObjectName("PlayerChip")
+        chip_layout = QHBoxLayout(chip)
+        chip_layout.setContentsMargins(10, 10, 12, 10)
+        chip_layout.setSpacing(10)
+
+        self.skin_head = QLabel("👤")
+        self.skin_head.setObjectName("SkinHead")
+        self.skin_head.setFixedSize(40, 40)
+        self.skin_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        chip_layout.addWidget(self.skin_head)
+
+        info = QVBoxLayout()
+        info.setSpacing(0)
+        self.account_label = QLabel("cicciook")
+        self.account_label.setObjectName("PlayerName")
+        self.status_label = QLabel("Offline")
+        self.status_label.setObjectName("StatusLabel")
+        self.status_label.setProperty("online", "false")
+        info.addWidget(self.account_label)
+        info.addWidget(self.status_label)
+        chip_layout.addLayout(info, 1)
+        layout.addWidget(chip)
+
+        version = QLabel("No Limits Launcher  v0.3.0")
+        version.setObjectName("VersionTag")
+        layout.addWidget(version)
+        return sidebar
+
+    def _build_play_bar(self):
+        bar = QFrame()
+        bar.setObjectName("PlayBar")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 14, 18, 14)
+        layout.setSpacing(14)
+
+        column = QVBoxLayout()
+        column.setSpacing(4)
+        cap = QLabel("ISTANZA SELEZIONATA")
+        cap.setObjectName("PlayBarCap")
+        self.top_instance_combo = QComboBox()
+        self.top_instance_combo.setMinimumWidth(280)
+        column.addWidget(cap)
+        column.addWidget(self.top_instance_combo)
+        layout.addLayout(column)
+        layout.addStretch(1)
+
+        self.quick_launch_btn = QPushButton("▶   Gioca")
+        self.quick_launch_btn.setObjectName("PlayButton")
+        self.quick_launch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.quick_launch_btn.clicked.connect(self.quick_launch_instance)
+        glow = QGraphicsDropShadowEffect(self.quick_launch_btn)
+        glow.setBlurRadius(36)
+        glow.setOffset(0, 4)
+        glow.setColor(QColor(124, 92, 246, 150))
+        self.quick_launch_btn.setGraphicsEffect(glow)
+        layout.addWidget(self.quick_launch_btn)
+        return bar
+
+    def _build_ad_banner(self):
+        self.ad_banner = QFrame()
+        self.ad_banner.setObjectName("AdBanner")
+        self.ad_banner.setFixedHeight(54)
+        layout = QHBoxLayout(self.ad_banner)
+        layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel("SPAZIO PUBBLICITÀ")
+        label.setObjectName("AdLabel")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+        return self.ad_banner
+
+    def _build_right_panel(self):
+        panel = QFrame()
+        panel.setObjectName("RightPanel")
+        panel.setFixedWidth(272)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 20, 16, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("Community")
+        title.setObjectName("BlockTitle")
+        subtitle = QLabel("Amici e server in evidenza")
+        subtitle.setObjectName("Muted")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addSpacing(4)
+
+        providers = QHBoxLayout()
+        providers.setSpacing(8)
+        cf_btn = QPushButton("CurseForge")
+        cf_btn.setObjectName("ChipCurse")
+        mr_btn = QPushButton("Modrinth")
+        mr_btn.setObjectName("ChipModrinth")
+        for chip in (cf_btn, mr_btn):
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            providers.addWidget(chip)
+        layout.addLayout(providers)
+
+        friends_cap = QLabel("AMICI ONLINE  ·  0")
+        friends_cap.setObjectName("SectionCap")
+        layout.addWidget(friends_cap)
+
+        self.friends_list = QListWidget()
+        self.friends_list.setObjectName("FriendsList")
+        placeholder = QListWidgetItem("Nessun amico online")
+        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.friends_list.addItem(placeholder)
+        layout.addWidget(self.friends_list, 1)
+
+        servers_cap = QLabel("SERVER CONSIGLIATI")
+        servers_cap.setObjectName("SectionCap")
+        layout.addWidget(servers_cap)
+        for text in ("No Limits SMP  ·  1.20.1", "Cobblemon Italia"):
+            button = QPushButton(text)
+            button.setObjectName("ServerButton")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            layout.addWidget(button)
+        return panel
+
     def panel(self, title=None, subtitle=None):
         frame = QFrame()
         frame.setObjectName("Panel")
-        frame.setStyleSheet("""
-            QFrame#Panel {
-                background: rgba(24, 18, 43, 0.65);
-                border: 1px solid rgba(168, 85, 247, 0.25);
-                border-radius: 12px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
         box = QVBoxLayout(frame)
-        box.setContentsMargins(18, 16, 18, 16)
+        box.setContentsMargins(20, 18, 20, 18)
         box.setSpacing(8)
         if title:
             t = QLabel(title)
-            t.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
+            t.setObjectName("PanelTitle")
             box.addWidget(t)
         if subtitle:
             s = QLabel(subtitle)
             s.setObjectName("Muted")
-            s.setStyleSheet("color: #a78bfa; font-size: 12px;")
             s.setWordWrap(True)
             box.addWidget(s)
         return frame, box
 
     def page_header(self, page, title, desc):
         box = QVBoxLayout()
+        box.setSpacing(2)
         t = QLabel(title)
-        t.setObjectName("SectionTitle")
-        t.setStyleSheet("font-size: 22px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
+        t.setObjectName("PageTitle")
         d = QLabel(desc)
-        d.setObjectName("Muted")
-        d.setStyleSheet("color: #a78bfa; font-size: 13px; border: none; background: transparent;")
+        d.setObjectName("PageSubtitle")
+        d.setWordWrap(True)
         box.addWidget(t)
         box.addWidget(d)
         self.pages[page].layout().addLayout(box)
 
     def build_home(self):
-        p = self.pages["Home"]
-        
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
-        
-        search_wrap = QFrame()
-        search_wrap.setStyleSheet("""
-            background: rgba(20, 14, 36, 0.7);
-            border: 1px solid rgba(168, 85, 247, 0.3);
-            border-radius: 10px;
-        """)
-        sw_layout = QHBoxLayout(search_wrap)
-        sw_layout.setContentsMargins(12, 6, 12, 6)
-        
-        search_icon = QLabel("🔍")
-        search_icon.setStyleSheet("color: #a78bfa; font-size: 13px; border: none; background: transparent;")
+        # La Home scorre: così la finestra può restare compatta senza schiacciare i contenuti.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        inner = QWidget()
+        inner.setObjectName("ScrollBody")
+        scroll.setWidget(inner)
+        inner.setAutoFillBackground(False)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(0, 0, 8, 0)
+        v.setSpacing(16)
+        self.pages["Home"].layout().addWidget(scroll)
+
+        greeting = QVBoxLayout()
+        greeting.setSpacing(2)
+        self.home_greeting = QLabel("Bentornato")
+        self.home_greeting.setObjectName("GreetingTitle")
+        greeting_sub = QLabel("Scegli un modpack e gioca senza limiti.")
+        greeting_sub.setObjectName("PageSubtitle")
+        greeting.addWidget(self.home_greeting)
+        greeting.addWidget(greeting_sub)
+        v.addLayout(greeting)
+
         self.home_search_input = QLineEdit()
-        self.home_search_input.setPlaceholderText("Cerca modpack su CurseForge e Modrinth...")
-        self.home_search_input.setStyleSheet("background: transparent; border: none; color: #ffffff; font-size: 13px;")
+        self.home_search_input.setObjectName("SearchInput")
+        self.home_search_input.setPlaceholderText("Cerca un modpack su Modrinth, es. Cobblemon…")
         self.home_search_input.returnPressed.connect(self.trigger_home_search)
-        
-        sw_layout.addWidget(search_icon)
-        sw_layout.addWidget(self.home_search_input, 1)
-        p.layout().addLayout(sw_layout)
-        
-        # Hero Carousel
+        v.addWidget(self.home_search_input)
+
+        # Hero carousel
         self.hero_frame = QFrame()
         self.hero_frame.setObjectName("HeroFrame")
-        self.hero_frame.setStyleSheet("""
-            QFrame#HeroFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(109, 40, 217, 0.4), stop:1 rgba(24, 15, 46, 0.8));
-                border: 1px solid rgba(168, 85, 247, 0.4);
-                border-radius: 14px;
-            }
-            QLabel { border: none; background: transparent; }
-        """)
-
         h_layout = QHBoxLayout(self.hero_frame)
-        h_layout.setContentsMargins(20, 20, 20, 20)
+        h_layout.setContentsMargins(24, 24, 24, 24)
         h_layout.setSpacing(20)
 
         self.hero_content = QFrame()
-        self.hero_content.setStyleSheet("background: transparent; border: none;")
+        self.hero_content.setObjectName("HeroContent")
         content_layout = QHBoxLayout(self.hero_content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(20)
+        content_layout.setSpacing(26)
 
-        self.hero_cover = CoverLabel("Zombie Invade 100 Days")
-        self.hero_cover.setFixedSize(240, 140)
-        self.hero_cover.setStyleSheet("background: transparent; border: none;")
+        self.hero_cover = CoverLabel("Zombie Invade 100 Days", radius=18)
+        self.hero_cover.setFixedSize(280, 168)
         content_layout.addWidget(self.hero_cover)
 
         hero_info = QVBoxLayout()
-        hero_info.setSpacing(8)
+        hero_info.setSpacing(10)
 
         self.hero_title_lbl = QLabel("Zombie Invade 100 Days")
-        self.hero_title_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ffffff;")
+        self.hero_title_lbl.setObjectName("HeroTitle")
+        self.hero_title_lbl.setWordWrap(True)
 
         self.hero_desc_lbl = QLabel("Same as Forge Labs 100 Days Zombie Apocalypse in new Minecraft.")
-        self.hero_desc_lbl.setStyleSheet("color: #ddd6fe; font-size: 13px;")
+        self.hero_desc_lbl.setObjectName("HeroDesc")
         self.hero_desc_lbl.setWordWrap(True)
 
         self.tags_layout = QHBoxLayout()
         self.tags_layout.setSpacing(6)
 
-        download_btn = QPushButton("📥 Scarica")
-        download_btn.setStyleSheet(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7); "
-            "color: #ffffff; border-radius: 8px; padding: 8px 24px; font-weight: 700; font-size: 13px; border: none;"
-        )
-        download_btn.clicked.connect(lambda: self.navigate("Catalogo"))
+        discover_btn = QPushButton("Scopri il modpack  →")
+        discover_btn.setObjectName("Primary")
+        discover_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        discover_btn.clicked.connect(lambda: self.open_catalog_with(self.hero_packs[self.hero_index]["query"]))
 
         hero_info.addWidget(self.hero_title_lbl)
         hero_info.addWidget(self.hero_desc_lbl)
         hero_info.addLayout(self.tags_layout)
         hero_info.addSpacing(4)
-        hero_info.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        hero_info.addWidget(discover_btn, 0, Qt.AlignmentFlag.AlignLeft)
         hero_info.addStretch()
 
         content_layout.addLayout(hero_info, 1)
         h_layout.addWidget(self.hero_content, 1)
-        p.layout().addWidget(self.hero_frame)
+        v.addWidget(self.hero_frame)
 
         self.dots_layout = QHBoxLayout()
         self.dots_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -776,23 +775,24 @@ class MainWindow(QMainWindow):
             dot.clicked.connect(lambda checked=False, index=i: self.go_to_hero(index))
             self.dots_layout.addWidget(dot)
             self.dots.append(dot)
-        p.layout().addLayout(self.dots_layout)
+        v.addLayout(self.dots_layout)
 
-        # Griglia Modpack
+        # Griglia modpack in evidenza
         grid_header = QHBoxLayout()
-        gh_title = QLabel("★ Modpack in evidenza")
-        gh_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
-        see_all = QPushButton("Vedi tutti →")
-        see_all.setStyleSheet("background: transparent; border: none; color: #c084fc; font-weight: 700; font-size: 12px;")
+        gh_title = QLabel("Modpack in evidenza")
+        gh_title.setObjectName("BlockTitle")
+        see_all = QPushButton("Vedi tutti  →")
+        see_all.setObjectName("LinkButton")
+        see_all.setCursor(Qt.CursorShape.PointingHandCursor)
         see_all.clicked.connect(lambda: self.navigate("Catalogo"))
         grid_header.addWidget(gh_title)
         grid_header.addStretch()
         grid_header.addWidget(see_all)
-        p.layout().addLayout(grid_header)
-        
+        v.addLayout(grid_header)
+
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(12)
-        
+        grid_layout.setSpacing(14)
+
         self.grid_cards = {}
         featured_packs = [
             ("Zombie Invade 100 Days", "1.20.1", "Forge", "Zombie Invade 100 Days"),
@@ -800,45 +800,34 @@ class MainWindow(QMainWindow):
             ("COBBLEVERSE", "1.20.1", "Fabric", "COBBLEVERSE"),
             ("BattleArmory TACZ", "1.20.1", "Forge", "BattleArmory TACZ")
         ]
-        
+
         for idx, (p_name, p_ver, p_loader, p_query) in enumerate(featured_packs):
-            card = QFrame()
-            card.setStyleSheet("""
-                QFrame {
-                    background: rgba(24, 18, 43, 0.6);
-                    border: 1px solid rgba(168, 85, 247, 0.25);
-                    border-radius: 12px;
-                }
-                QLabel {
-                    border: none;
-                    background: transparent;
-                }
-            """)
+            card = ClickableFrame()
+            card.setObjectName("FeatureCard")
+            card.clicked.connect(lambda q=p_query: self.open_catalog_with(q))
             c_box = QVBoxLayout(card)
-            c_box.setContentsMargins(10, 10, 10, 10)
+            c_box.setContentsMargins(10, 10, 10, 12)
             c_box.setSpacing(6)
-            
-            c_img = CoverLabel(p_name)
-            c_img.setFixedHeight(110)
-            c_img.setMinimumWidth(0)
-            c_img.setStyleSheet("background: transparent; border: none;")
-            
+
+            c_img = CoverLabel(p_name, radius=12)
+            c_img.setFixedHeight(118)
+
             c_title = QLabel(p_name)
-            c_title.setStyleSheet("font-weight: 700; font-size: 12px; color: #ffffff;")
-            
-            c_meta = QLabel(f"🌐 {p_ver}   ★ {p_loader}")
-            c_meta.setStyleSheet("font-size: 10px; color: #a78bfa; font-weight: 600;")
-            
+            c_title.setObjectName("FeatureTitle")
+            c_meta = QLabel(f"{p_ver}  •  {p_loader}")
+            c_meta.setObjectName("FeatureMeta")
+
             c_box.addWidget(c_img)
             c_box.addWidget(c_title)
             c_box.addWidget(c_meta)
-            
+
             self.grid_cards[p_query] = c_img
             grid_layout.addWidget(card, 0, idx)
-            
-        p.layout().addLayout(grid_layout)
-        p.layout().addStretch()
-        
+            grid_layout.setColumnStretch(idx, 1)
+
+        v.addLayout(grid_layout)
+        v.addStretch()
+
         self.hero_opacity = QGraphicsOpacityEffect(self.hero_content)
         self.hero_content.setGraphicsEffect(self.hero_opacity)
         self.hero_opacity.setOpacity(1.0)
@@ -861,16 +850,15 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation,
         )
         color = sample.toImage().pixelColor(0, 0)
-        start = color.darker(160)
-        end = color.darker(450)
+        start = color.darker(150)
+        end = color.darker(420)
         self.hero_frame.setStyleSheet(f"""
             QFrame#HeroFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {start.name()}, stop:1 {end.name()});
-                border: 1px solid rgba(168, 85, 247, 0.5);
-                border-radius: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 22px;
             }}
-            QLabel {{ border: none; background: transparent; }}
         """)
 
     def update_hero_ui(self):
@@ -885,24 +873,20 @@ class MainWindow(QMainWindow):
 
         for tag in pack["tags"]:
             tag_label = QLabel(tag)
-            tag_label.setStyleSheet(
-                "background: rgba(139, 92, 246, 0.25); color: #e9d5ff; "
-                "padding: 4px 12px; border-radius: 12px; "
-                "font-size: 11px; font-weight: 600;"
-            )
+            tag_label.setObjectName("Tag")
             self.tags_layout.addWidget(tag_label)
         self.tags_layout.addStretch()
 
         for idx, dot in enumerate(self.dots):
             if idx == self.hero_index:
-                dot.setFixedSize(11, 11)
+                dot.setFixedSize(26, 8)
                 dot.setStyleSheet(
-                    "QPushButton { background: #c084fc; border: 2px solid #f3e8ff; border-radius: 5px; }"
+                    "QPushButton { background: #c084fc; border: none; border-radius: 4px; }"
                 )
             else:
                 dot.setFixedSize(8, 8)
                 dot.setStyleSheet(
-                    "QPushButton { background: rgba(168, 85, 247, 0.3); border: none; border-radius: 4px; } "
+                    "QPushButton { background: rgba(255, 255, 255, 0.22); border: none; border-radius: 4px; } "
                     "QPushButton:hover { background: #c084fc; }"
                 )
 
@@ -988,18 +972,23 @@ class MainWindow(QMainWindow):
             self.hero_cover.set_cover_data(data)
             self.update_hero_gradient(data)
 
+    def open_catalog_with(self, query):
+        """Apre il Catalogo già filtrato: navigate() lancia da solo la ricerca perché la lista è vuota."""
+        self.search_input.setText(query)
+        self.results.clear()
+        self.navigate("Catalogo")
+
     def trigger_home_search(self):
         query = self.home_search_input.text().strip()
         if query:
-            self.search_input.setText(query)
-            self.navigate("Catalogo")
-            self.search_modpacks()
+            self.open_catalog_with(query)
 
     def build_catalog(self):
         p = self.pages["Catalogo"]
         self.page_header("Catalogo", "Catalogo modpack", "Cerca modpack su Modrinth. Il connettore CurseForge verrà attivato con API key autorizzata.")
         row = QHBoxLayout()
         self.search_input = QLineEdit()
+        self.search_input.setObjectName("SearchInput")
         self.search_input.setPlaceholderText("Cerca modpack…")
         self.search_input.returnPressed.connect(self.search_modpacks)
         row.addWidget(self.search_input, 1)
@@ -1012,8 +1001,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self.search_button)
         p.layout().addLayout(row)
         self.results = QListWidget()
-        self.results.setIconSize(QPixmap(112, 72).size())
-        self.results.setSpacing(7)
+        self.results.setSpacing(8)
         self.results.itemDoubleClicked.connect(self.show_pack_details)
         p.layout().addWidget(self.results, 1)
         self.install_progress = QProgressBar()
@@ -1070,8 +1058,7 @@ class MainWindow(QMainWindow):
         row.addWidget(add)
         p.layout().addLayout(row)
         self.instance_list = QListWidget()
-        self.instance_list.setIconSize(QSize(128, 76))
-        self.instance_list.setSpacing(7)
+        self.instance_list.setSpacing(8)
         p.layout().addWidget(self.instance_list, 1)
         controls = QHBoxLayout()
         rename = QPushButton("Rinomina")
@@ -1102,26 +1089,6 @@ class MainWindow(QMainWindow):
         self.page_header("Impostazioni", "Impostazioni Launcher", "Gestisci il tuo profilo, l'account Microsoft e le opzioni di sistema.")
         
         tabs = QTabWidget()
-        tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid rgba(168, 85, 247, 0.3);
-                border-radius: 10px;
-                background: rgba(20, 14, 36, 0.6);
-            }
-            QTabBar::tab {
-                background: rgba(255, 255, 255, 0.05);
-                color: #d8b4fe;
-                padding: 8px 18px;
-                font-weight: 700;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                margin-right: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #8b5cf6;
-                color: #ffffff;
-            }
-        """)
         
         account_tab = QWidget()
         at_layout = QVBoxLayout(account_tab)
@@ -1221,7 +1188,7 @@ class MainWindow(QMainWindow):
 
         results = QListWidget()
         results.setObjectName("ContentResults")
-        results.setSpacing(5)
+        results.setSpacing(8)
         results.setUniformItemSizes(False)
         if not hasattr(self, "content_lists"):
             self.content_lists = {}
@@ -1345,7 +1312,6 @@ class MainWindow(QMainWindow):
             self.content_lists[kind].addItem(item)
 
             card = ContentResultCard(self.content_lists[kind], item)
-            card.setObjectName("ContentResultCard")
             for label in (title, downloads, author, version):
                 label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             if description:
@@ -1397,15 +1363,12 @@ class MainWindow(QMainWindow):
 
     def set_content_cover(self, label, data):
         pixmap = QPixmap()
-        if pixmap.loadFromData(data):
-            label.setPixmap(
-                pixmap.scaled(
-                    label.size(),
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-            label.setText("")
+        try:
+            if pixmap.loadFromData(data):
+                label.setPixmap(rounded_pixmap(pixmap, label.size(), 14))
+                label.setText("")
+        except RuntimeError:
+            pass  # la card è stata rimossa prima che l'immagine arrivasse
 
     def content_cover_failed(self, label, message):
         label.setText("COVER")
@@ -1447,33 +1410,85 @@ class MainWindow(QMainWindow):
         self.search_worker.finished.connect(self.search_finished)
         self.search_worker.start()
 
+    def add_empty_item(self, list_widget, text, height=96):
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setSizeHint(QSize(0, height))
+        list_widget.addItem(item)
+        label = QLabel(text)
+        label.setObjectName("Muted")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setWordWrap(True)
+        list_widget.setItemWidget(item, label)
+
+    def make_result_card(self, list_widget, item, title, meta, description="", badge=None,
+                         badge_ok=True, icon_url=None, cover_text="MODRINTH", height=100):
+        card = ContentResultCard(list_widget, item)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(12, 10, 16, 10)
+        layout.setSpacing(14)
+
+        cover = QLabel(cover_text)
+        cover.setObjectName("ContentCover")
+        cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cover.setFixedSize(72, 72)
+        layout.addWidget(cover)
+
+        details = QVBoxLayout()
+        details.setSpacing(3)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_label = QLabel(title)
+        title_label.setObjectName("ContentTitle")
+        title_row.addWidget(title_label)
+        if badge:
+            badge_label = QLabel(badge)
+            badge_label.setObjectName("BadgeOk" if badge_ok else "BadgeWarn")
+            title_row.addWidget(badge_label)
+        title_row.addStretch(1)
+        details.addLayout(title_row)
+        meta_label = QLabel(meta)
+        meta_label.setObjectName("ContentAuthor")
+        details.addWidget(meta_label)
+        if description:
+            description_label = QLabel(description)
+            description_label.setObjectName("ContentDescription")
+            details.addWidget(description_label)
+        details.addStretch(1)
+        layout.addLayout(details, 1)
+
+        for child in card.findChildren(QLabel):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        item.setSizeHint(QSize(0, height))
+        list_widget.setItemWidget(item, card)
+
+        if icon_url:
+            worker = CoverWorker(cover, icon_url)
+            worker.loaded.connect(self.set_content_cover)
+            worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
+            self.cover_workers.append(worker)
+            worker.start()
+        return card
+
     def show_results(self, packs):
         if not packs:
-            self.results.addItem("Nessun modpack trovato. Prova un altro nome.")
+            self.add_empty_item(self.results, "Nessun modpack trovato. Prova un altro nome.")
             return
         for pack in packs:
             description = (pack.get("description") or "").strip()
-            if len(description) > 180: description = description[:177] + "..."
-            item = QListWidgetItem(
-                f'{pack.get("title","Modpack")}\n'
-                f'{pack.get("author","Unknown")} • {pack.get("downloads",0):,} download\n'
-                f'{description}'
-            )
+            if len(description) > 150:
+                description = description[:147] + "…"
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, pack)
-            item.setSizeHint(QSize(0, 88))
             self.results.addItem(item)
-            cover = pack.get("icon_url")
-            if cover:
-                worker = CoverWorker(item, cover)
-                worker.loaded.connect(self.set_pack_cover)
-                worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
-                self.cover_workers.append(worker)
-                worker.start()
-
-    def set_pack_cover(self, item, data):
-        pixmap = QPixmap()
-        if pixmap.loadFromData(data):
-            item.setIcon(QIcon(pixmap.scaled(112, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
+            self.make_result_card(
+                self.results, item,
+                title=pack.get("title", "Modpack"),
+                meta=f'{pack.get("author", "Unknown")}  •  {pack.get("downloads", 0):,} download',
+                description=description,
+                icon_url=pack.get("icon_url"),
+            )
 
     def install_selected_pack(self):
         item = self.results.currentItem()
@@ -1561,24 +1576,31 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "instance_list"): return
         self.instance_list.clear()
         self.top_instance_combo.clear()
-        
-        for instance in self.store.list_instances():
-            status_desc = f'{instance["name"]} • Minecraft {instance["minecraft_version"]} • {instance["loader"].title()} • {instance["status"]}'
-            item = QListWidgetItem(status_desc)
+
+        instances = self.store.list_instances()
+        if not instances:
+            self.add_empty_item(
+                self.instance_list,
+                "Nessuna istanza per ora.\nInstalla un modpack dal Catalogo oppure crea una nuova istanza.",
+            )
+        for instance in instances:
+            installed = instance.get("status") == "installed"
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, instance)
-            item.setSizeHint(QSize(0, 90))
             self.instance_list.addItem(item)
-            
-            if instance.get("status") == "installed":
+            self.make_result_card(
+                self.instance_list, item,
+                title=instance.get("name", "Istanza"),
+                meta=f'Minecraft {instance.get("minecraft_version", "?")}  •  {str(instance.get("loader", "")).title()}',
+                badge="INSTALLATA" if installed else str(instance.get("status", "")).upper(),
+                badge_ok=installed,
+                icon_url=instance.get("icon_url"),
+                cover_text="MC",
+                height=96,
+            )
+            if installed:
                 self.top_instance_combo.addItem(instance.get("name", "Istanza"), instance)
 
-            if instance.get("icon_url"):
-                worker = CoverWorker(item, instance["icon_url"])
-                worker.loaded.connect(self.set_pack_cover)
-                self.cover_workers.append(worker)
-                worker.finished.connect(lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None)
-                worker.start()
-                
         self.refresh_content_instances()
 
     def rename_selected_instance(self):
@@ -1681,21 +1703,21 @@ class MainWindow(QMainWindow):
     def set_skin_head(self, data):
         pixmap = QPixmap()
         if pixmap.loadFromData(data):
-            self.skin_head.setPixmap(pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.skin_head.setPixmap(rounded_pixmap(pixmap, self.skin_head.size(), 10))
             self.skin_head.setText("")
 
     def update_account_ui(self):
         if self.account:
             username = self.account.get("name", "cicciook")
-            self.account_label.setText(username)
-            self.status_label.setText("• Online")
-            self.load_skin_head(username)
-            if hasattr(self, "logout_button"): self.logout_button.setVisible(True)
-            if hasattr(self, "login_button"): self.login_button.setText("Account collegato")
+            online = True
         else:
-            name = self.config.get("offline_username", "cicciook")
-            self.account_label.setText(name)
-            self.status_label.setText("• Offline")
-            self.load_skin_head(name)
-            if hasattr(self, "logout_button"): self.logout_button.setVisible(False)
-            if hasattr(self, "login_button"): self.login_button.setText("Accedi con Microsoft")
+            username = self.config.get("offline_username", "cicciook") or "cicciook"
+            online = False
+        self.account_label.setText(username)
+        self.status_label.setText("Online" if online else "Offline")
+        self.status_label.setProperty("online", "true" if online else "false")
+        repolish(self.status_label)
+        if hasattr(self, "home_greeting"): self.home_greeting.setText(f"Bentornato, {username}")
+        self.load_skin_head(username)
+        if hasattr(self, "logout_button"): self.logout_button.setVisible(online)
+        if hasattr(self, "login_button"): self.login_button.setText("Account collegato" if online else "Accedi con Microsoft")
