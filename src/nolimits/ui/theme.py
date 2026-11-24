@@ -267,7 +267,7 @@ QFrame#ContentIntro {{
 QFrame#HeroFrame {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2a1763, stop:1 #0e0a22);
     border: 1px solid {BORDER_ACCENT};
-    border-radius: 22px;
+    border-radius: 26px;
 }}
 QFrame#HeroContent {{ background: transparent; border: none; }}
 QLabel#HeroTitle {{ font-size: 28px; font-weight: 900; color: #ffffff; }}
@@ -284,38 +284,21 @@ QLabel#Tag {{
 QFrame#FeatureCard {{
     background: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 16px;
+    border-radius: 22px;
 }}
 QFrame#FeatureCard:hover {{ background: {SURFACE_HOVER}; border: 1px solid {VIOLET}; }}
-QLabel#FeatureTitle {{ font-size: 13px; font-weight: 700; color: #ffffff; }}
-QLabel#FeatureMeta {{ font-size: 11px; color: #b4a6f0; font-weight: 600; }}
+QLabel#FeatureTitle {{ font-size: 13px; font-weight: 800; color: #ffffff; }}
+QLabel#FeatureMeta {{ font-size: 11px; color: #e4dcff; font-weight: 700; background: rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 3px 12px; }}
 
 QFrame#ResultCard {{
     background: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 16px;
+    border-radius: 20px;
 }}
 QFrame#ResultCard:hover {{ background: {SURFACE_HOVER}; border: 1px solid rgba(167, 139, 250, 0.55); }}
 QFrame#ResultCard[selected="true"] {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(139, 92, 246, 0.30), stop:1 rgba(139, 92, 246, 0.08));
     border: 1px solid {VIOLET};
-}}
-QLabel#ContentCover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(139, 92, 246, 0.30), stop:1 rgba(56, 189, 248, 0.12));
-    border: 1px solid {BORDER};
-    border-radius: 14px;
-    color: #b8a8f5;
-    font-size: 9px;
-    font-weight: 800;
-}}
-QLabel#CoverLabel {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(139, 92, 246, 0.30), stop:1 rgba(56, 189, 248, 0.12));
-    border: 1px solid {BORDER};
-    border-radius: 14px;
-    color: #cdbfff;
-    font-size: 12px;
-    font-weight: 800;
-    padding: 6px;
 }}
 QWidget#ScrollBody {{ background: transparent; }}
 QLabel#ContentTitle {{ color: #ffffff; font-size: 14px; font-weight: 800; }}

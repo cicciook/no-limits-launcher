@@ -3,9 +3,9 @@ import json
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QSizePolicy
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve, QRectF
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath, QPen, QFont, QLinearGradient, QBrush
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -218,41 +218,126 @@ def nav_icon(name, idle="#a59cc9", active="#ffffff", size=18):
     return icon
 
 
-class CoverLabel(QLabel):
-    """Copertina con angoli arrotondati che riempie tutto lo spazio a disposizione."""
+def rgba(color, alpha):
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
 
-    def __init__(self, placeholder="", radius=14, parent=None):
-        super().__init__(placeholder, parent)
-        self._source_pixmap = None
-        self._placeholder = placeholder
-        self._radius = radius
-        self.setObjectName("CoverLabel")
-        self.setWordWrap(True)
+
+def accent_from_pixmap(pixmap):
+    """Colore più vivace presente nell'icona (non la media, che con gli sfondi scuri viene grigia)."""
+    image = pixmap.scaled(
+        10, 10, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+    ).toImage()
+    best, best_score = None, -1.0
+    for y in range(10):
+        for x in range(10):
+            c = image.pixelColor(x, y)
+            score = c.saturationF() * (0.4 + c.valueF())
+            if c.alphaF() > 0.5 and score > best_score:
+                best, best_score = c, score
+    if best is None or best_score < 0.12:
+        return QColor(139, 92, 246)
+    hue = best.hueF()
+    return QColor.fromHsvF(hue if hue >= 0 else 0.75, min(1.0, max(best.saturationF(), 0.55)), max(best.valueF(), 0.85))
+
+
+def initials(title):
+    letters = "".join(word[0] for word in str(title).split()[:2] if word[:1].isalnum())
+    return (letters or "MC").upper()
+
+
+def glow_icon_pixmap(source, size, radius, glow, accent, label=""):
+    """Icona in stile app: angoli molto arrotondati, bordo sottile e alone del colore dominante.
+
+    Con `source=None` disegna un segnaposto a gradiente con le iniziali.
+    """
+    dpr = 2.0
+
+    def k(value):
+        return value * dpr
+
+    total = size + 2 * glow
+    result = QPixmap(int(k(total)), int(k(total)))
+    result.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(result)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+    # alone: tanti strati sottili semitrasparenti che sfumano verso l'esterno
+    painter.setPen(Qt.PenStyle.NoPen)
+    halo = QColor(accent)
+    halo.setAlpha(15)
+    painter.setBrush(halo)
+    for grow in range(glow, 0, -1):
+        painter.drawRoundedRect(
+            QRectF(k(glow - grow), k(glow - grow + 2), k(size + 2 * grow), k(size + 2 * grow)),
+            k(radius + grow), k(radius + grow),
+        )
+
+    box = QRectF(k(glow), k(glow), k(size), k(size))
+    path = QPainterPath()
+    path.addRoundedRect(box, k(radius), k(radius))
+    painter.setClipPath(path)
+    if source is not None:
+        scaled = source.scaled(
+            int(k(size)), int(k(size)),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        painter.drawPixmap(
+            int(box.x() + (box.width() - scaled.width()) / 2),
+            int(box.y() + (box.height() - scaled.height()) / 2),
+            scaled,
+        )
+    else:
+        gradient = QLinearGradient(box.topLeft(), box.bottomRight())
+        gradient.setColorAt(0.0, QColor(139, 92, 246, 190))
+        gradient.setColorAt(1.0, QColor(56, 189, 248, 120))
+        painter.fillPath(path, QBrush(gradient))
+        font = QFont()
+        font.setBold(True)
+        font.setPixelSize(max(8, int(k(size * 0.34))))
+        painter.setFont(font)
+        painter.setPen(QColor(245, 240, 255))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+
+    painter.setClipping(False)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(QColor(255, 255, 255, 50), k(1)))
+    painter.drawRoundedRect(box.adjusted(k(0.5), k(0.5), -k(0.5), -k(0.5)), k(radius), k(radius))
+    painter.end()
+    result.setDevicePixelRatio(dpr)
+    return result
+
+
+class PackIcon(QLabel):
+    """Icona di un modpack: squircle con alone luminoso che prende il colore dell'icona stessa."""
+
+    def __init__(self, size=72, radius=20, glow=0, title="", parent=None):
+        super().__init__(parent)
+        self._size, self._radius, self._glow = size, radius, glow
+        self._title = title
+        self.accent_color = QColor(139, 92, 246)
+        self.setObjectName("PackIcon")
+        self.setFixedSize(size + 2 * glow, size + 2 * glow)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._paint_placeholder()
 
-    def set_placeholder(self, text):
-        self._placeholder = text
-        if self._source_pixmap is None:
-            self.setText(text)
+    def _paint_placeholder(self):
+        self.accent_color = QColor(139, 92, 246)
+        self.setPixmap(glow_icon_pixmap(None, self._size, self._radius, self._glow, self.accent_color, initials(self._title)))
+
+    def set_placeholder(self, title):
+        """Torna al segnaposto (con le iniziali del titolo): serve quando il carosello cambia pack."""
+        self._title = title
+        self._paint_placeholder()
 
     def set_cover_data(self, data):
         pixmap = QPixmap()
         if not pixmap.loadFromData(data) or pixmap.isNull():
             return False
-        self._source_pixmap = pixmap
-        self.setText("")
-        self._render_cover()
+        self.accent_color = accent_from_pixmap(pixmap)
+        self.setPixmap(glow_icon_pixmap(pixmap, self._size, self._radius, self._glow, self.accent_color))
         return True
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._render_cover()
-
-    def _render_cover(self):
-        if self._source_pixmap is None or self.width() <= 0 or self.height() <= 0:
-            return
-        self.setPixmap(rounded_pixmap(self._source_pixmap, self.size(), self._radius))
 
 
 class ClickableFrame(QFrame):
@@ -729,9 +814,8 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(26)
 
-        self.hero_cover = CoverLabel("Zombie Invade 100 Days", radius=18)
-        self.hero_cover.setFixedSize(280, 168)
-        content_layout.addWidget(self.hero_cover)
+        self.hero_cover = PackIcon(136, 38, 22, "Zombie Invade 100 Days")
+        content_layout.addWidget(self.hero_cover, 0, Qt.AlignmentFlag.AlignVCenter)
 
         hero_info = QVBoxLayout()
         hero_info.setSpacing(10)
@@ -794,6 +878,7 @@ class MainWindow(QMainWindow):
         grid_layout.setSpacing(14)
 
         self.grid_cards = {}
+        self.grid_frames = {}
         featured_packs = [
             ("Zombie Invade 100 Days", "1.20.1", "Forge", "Zombie Invade 100 Days"),
             ("Cobblemon Official Modpack", "1.20.1", "Fabric", "Cobblemon Official Modpack"),
@@ -806,22 +891,25 @@ class MainWindow(QMainWindow):
             card.setObjectName("FeatureCard")
             card.clicked.connect(lambda q=p_query: self.open_catalog_with(q))
             c_box = QVBoxLayout(card)
-            c_box.setContentsMargins(10, 10, 10, 12)
+            c_box.setContentsMargins(12, 14, 12, 16)
             c_box.setSpacing(6)
 
-            c_img = CoverLabel(p_name, radius=12)
-            c_img.setFixedHeight(118)
+            c_img = PackIcon(84, 24, 14, p_name)
 
             c_title = QLabel(p_name)
             c_title.setObjectName("FeatureTitle")
+            c_title.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            c_title.setWordWrap(True)
+            c_title.setFixedHeight(36)
             c_meta = QLabel(f"{p_ver}  •  {p_loader}")
             c_meta.setObjectName("FeatureMeta")
 
-            c_box.addWidget(c_img)
+            c_box.addWidget(c_img, 0, Qt.AlignmentFlag.AlignHCenter)
             c_box.addWidget(c_title)
-            c_box.addWidget(c_meta)
+            c_box.addWidget(c_meta, 0, Qt.AlignmentFlag.AlignHCenter)
 
             self.grid_cards[p_query] = c_img
+            self.grid_frames[p_query] = card
             grid_layout.addWidget(card, 0, idx)
             grid_layout.setColumnStretch(idx, 1)
 
@@ -844,20 +932,13 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap()
         if not pixmap.loadFromData(data) or pixmap.isNull():
             return
-        sample = pixmap.scaled(
-            1, 1,
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        color = sample.toImage().pixelColor(0, 0)
-        start = color.darker(150)
-        end = color.darker(420)
+        accent = accent_from_pixmap(pixmap)
         self.hero_frame.setStyleSheet(f"""
             QFrame#HeroFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {start.name()}, stop:1 {end.name()});
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 22px;
+                background: qradialgradient(cx:0.17, cy:0.5, radius:0.95, fx:0.17, fy:0.5,
+                    stop:0 {rgba(accent, 0.50)}, stop:0.55 {rgba(accent, 0.13)}, stop:1 rgba(10, 7, 24, 0.95));
+                border: 1px solid {rgba(accent, 0.45)};
+                border-radius: 26px;
             }}
         """)
 
@@ -967,7 +1048,9 @@ class MainWindow(QMainWindow):
     def on_hero_image_loaded(self, key, data):
         self.hero_images[key] = data
         if key in self.grid_cards:
-            self.grid_cards[key].set_cover_data(data)
+            icon = self.grid_cards[key]
+            if icon.set_cover_data(data):
+                self.tint_feature_card(self.grid_frames[key], icon.accent_color)
         if self.hero_packs[self.hero_index]["query"] == key:
             self.hero_cover.set_cover_data(data)
             self.update_hero_gradient(data)
@@ -977,6 +1060,21 @@ class MainWindow(QMainWindow):
         self.search_input.setText(query)
         self.results.clear()
         self.navigate("Catalogo")
+
+    def tint_feature_card(self, card, accent):
+        card.setStyleSheet(f"""
+            QFrame#FeatureCard {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {rgba(accent, 0.26)}, stop:1 rgba(255, 255, 255, 0.03));
+                border: 1px solid {rgba(accent, 0.32)};
+                border-radius: 22px;
+            }}
+            QFrame#FeatureCard:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {rgba(accent, 0.40)}, stop:1 rgba(255, 255, 255, 0.05));
+                border: 1px solid {rgba(accent, 0.90)};
+            }}
+        """)
 
     def trigger_home_search(self):
         query = self.home_search_input.text().strip()
@@ -1320,10 +1418,7 @@ class MainWindow(QMainWindow):
             layout.setContentsMargins(12, 9, 12, 9)
             layout.setSpacing(13)
 
-            cover = QLabel("MODRINTH")
-            cover.setObjectName("ContentCover")
-            cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cover.setFixedSize(76, 76)
+            cover = PackIcon(72, 21, 0, project.get("title", ""))
             cover.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             layout.addWidget(cover)
             layout.addLayout(details, 1)
@@ -1347,8 +1442,6 @@ class MainWindow(QMainWindow):
                     lambda w=worker: self.cover_workers.remove(w) if w in self.cover_workers else None
                 )
                 worker.start()
-            else:
-                cover.setText("NO COVER")
             added += 1
 
         self.content_offsets[kind] = offset + len(projects)
@@ -1364,14 +1457,15 @@ class MainWindow(QMainWindow):
     def set_content_cover(self, label, data):
         pixmap = QPixmap()
         try:
-            if pixmap.loadFromData(data):
-                label.setPixmap(rounded_pixmap(pixmap, label.size(), 14))
+            if hasattr(label, "set_cover_data"):
+                label.set_cover_data(data)
+            elif pixmap.loadFromData(data):
+                label.setPixmap(rounded_pixmap(pixmap, label.size(), 20))
                 label.setText("")
         except RuntimeError:
             pass  # la card è stata rimossa prima che l'immagine arrivasse
 
     def content_cover_failed(self, label, message):
-        label.setText("COVER")
         label.setToolTip("Copertina non disponibile: " + message)
 
     def install_selected_content(self, kind):
@@ -1422,16 +1516,13 @@ class MainWindow(QMainWindow):
         list_widget.setItemWidget(item, label)
 
     def make_result_card(self, list_widget, item, title, meta, description="", badge=None,
-                         badge_ok=True, icon_url=None, cover_text="MODRINTH", height=100):
+                         badge_ok=True, icon_url=None, height=100):
         card = ContentResultCard(list_widget, item)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(12, 10, 16, 10)
         layout.setSpacing(14)
 
-        cover = QLabel(cover_text)
-        cover.setObjectName("ContentCover")
-        cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cover.setFixedSize(72, 72)
+        cover = PackIcon(72, 21, 0, title)
         layout.addWidget(cover)
 
         details = QVBoxLayout()
@@ -1595,7 +1686,6 @@ class MainWindow(QMainWindow):
                 badge="INSTALLATA" if installed else str(instance.get("status", "")).upper(),
                 badge_ok=installed,
                 icon_url=instance.get("icon_url"),
-                cover_text="MC",
                 height=96,
             )
             if installed:
