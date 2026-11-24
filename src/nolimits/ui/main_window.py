@@ -3,7 +3,7 @@ import json
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve, QRectF
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve, QRectF, QPoint
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath, QPen, QFont, QLinearGradient, QBrush
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 from PySide6.QtSvg import QSvgRenderer
@@ -341,16 +341,52 @@ class PackIcon(QLabel):
 
 
 class ClickableFrame(QFrame):
+    """Frame cliccabile che, al passaggio del mouse, si illumina con un alone animato."""
     clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._glow = QGraphicsDropShadowEffect(self)
+        self._glow.setOffset(0, 8)
+        self._glow.setBlurRadius(0)
+        self._glow.setColor(QColor(139, 92, 246, 150))
+        self._glow.setEnabled(False)  # attivo solo durante l'hover: niente costo a riposo
+        self.setGraphicsEffect(self._glow)
+        self._glow_anim = QPropertyAnimation(self._glow, b"blurRadius", self)
+        self._glow_anim.setDuration(220)
+        self._glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._glow_anim.finished.connect(self._glow_settled)
+
+    def set_glow_color(self, color):
+        tinted = QColor(color)
+        tinted.setAlpha(170)
+        self._glow.setColor(tinted)
+
+    def _glow_to(self, radius):
+        self._glow_anim.stop()
+        self._glow_anim.setStartValue(self._glow.blurRadius())
+        self._glow_anim.setEndValue(radius)
+        self._glow_anim.start()
+
+    def _glow_settled(self):
+        if self._glow.blurRadius() <= 0.5:
+            self._glow.setEnabled(False)
+
+    def enterEvent(self, event):
+        self._glow.setEnabled(True)
+        self._glow_to(30.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._glow_to(0.0)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
 
 class SearchWorker(QThread):
     completed = Signal(list)
@@ -528,6 +564,7 @@ class MainWindow(QMainWindow):
         self.launch_worker = None
         self.skin_worker = None
         self.cover_workers = []
+        self.page_animation = None
 
         self.hero_index = 0
         self.hero_packs = [
@@ -558,8 +595,12 @@ class MainWindow(QMainWindow):
         center.addWidget(self._build_ad_banner())
         main_layout.addLayout(center, 1)
 
-        # Colonna destra: community
-        main_layout.addWidget(self._build_right_panel())
+        # Colonna destra: community (alta quanto il contenuto, non l'intera finestra)
+        right_column = QVBoxLayout()
+        right_column.setSpacing(0)
+        right_column.addWidget(self._build_right_panel())
+        right_column.addStretch(1)
+        main_layout.addLayout(right_column)
 
         self.pages = {}
         for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
@@ -587,11 +628,11 @@ class MainWindow(QMainWindow):
         sidebar.setFixedWidth(232)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(14, 20, 14, 14)
-        layout.setSpacing(2)
+        layout.setSpacing(3)
 
         self.logo_label = QLabel()
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo = load_logo_pixmap(192)
+        logo = load_logo_pixmap(200)
         if logo:
             ratio = logo.devicePixelRatio()
             self.logo_label.setPixmap(logo)
@@ -678,6 +719,14 @@ class MainWindow(QMainWindow):
         glow.setOffset(0, 4)
         glow.setColor(QColor(124, 92, 246, 150))
         self.quick_launch_btn.setGraphicsEffect(glow)
+        self.play_pulse = QPropertyAnimation(glow, b"blurRadius", self)
+        self.play_pulse.setDuration(2600)
+        self.play_pulse.setKeyValueAt(0.0, 22.0)
+        self.play_pulse.setKeyValueAt(0.5, 50.0)
+        self.play_pulse.setKeyValueAt(1.0, 22.0)
+        self.play_pulse.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.play_pulse.setLoopCount(-1)
+        self.play_pulse.start()
         layout.addWidget(self.quick_launch_btn)
         return bar
 
@@ -696,29 +745,14 @@ class MainWindow(QMainWindow):
     def _build_right_panel(self):
         panel = QFrame()
         panel.setObjectName("RightPanel")
-        panel.setFixedWidth(272)
+        panel.setFixedWidth(216)
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 20, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setSpacing(8)
 
         title = QLabel("Community")
         title.setObjectName("BlockTitle")
-        subtitle = QLabel("Amici e server in evidenza")
-        subtitle.setObjectName("Muted")
         layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addSpacing(4)
-
-        providers = QHBoxLayout()
-        providers.setSpacing(8)
-        cf_btn = QPushButton("CurseForge")
-        cf_btn.setObjectName("ChipCurse")
-        mr_btn = QPushButton("Modrinth")
-        mr_btn.setObjectName("ChipModrinth")
-        for chip in (cf_btn, mr_btn):
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            providers.addWidget(chip)
-        layout.addLayout(providers)
 
         friends_cap = QLabel("AMICI ONLINE  ·  0")
         friends_cap.setObjectName("SectionCap")
@@ -726,15 +760,16 @@ class MainWindow(QMainWindow):
 
         self.friends_list = QListWidget()
         self.friends_list.setObjectName("FriendsList")
+        self.friends_list.setFixedHeight(46)
         placeholder = QListWidgetItem("Nessun amico online")
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
         self.friends_list.addItem(placeholder)
-        layout.addWidget(self.friends_list, 1)
+        layout.addWidget(self.friends_list)
 
         servers_cap = QLabel("SERVER CONSIGLIATI")
         servers_cap.setObjectName("SectionCap")
         layout.addWidget(servers_cap)
-        for text in ("No Limits SMP  ·  1.20.1", "Cobblemon Italia"):
+        for text in ("No Limits SMP · 1.20.1", "Cobblemon Italia"):
             button = QPushButton(text)
             button.setObjectName("ServerButton")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -815,7 +850,19 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(26)
 
         self.hero_cover = PackIcon(136, 38, 22, "Zombie Invade 100 Days")
-        content_layout.addWidget(self.hero_cover, 0, Qt.AlignmentFlag.AlignVCenter)
+        float_box = QWidget()
+        float_box.setFixedSize(self.hero_cover.width(), self.hero_cover.height() + 16)
+        self.hero_cover.setParent(float_box)
+        self.hero_cover.move(0, 8)
+        content_layout.addWidget(float_box, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.hero_float = QPropertyAnimation(self.hero_cover, b"pos", self)
+        self.hero_float.setDuration(3800)
+        self.hero_float.setKeyValueAt(0.0, QPoint(0, 2))
+        self.hero_float.setKeyValueAt(0.5, QPoint(0, 14))
+        self.hero_float.setKeyValueAt(1.0, QPoint(0, 2))
+        self.hero_float.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.hero_float.setLoopCount(-1)
+        self.hero_float.start()
 
         hero_info = QVBoxLayout()
         hero_info.setSpacing(10)
@@ -1062,6 +1109,7 @@ class MainWindow(QMainWindow):
         self.navigate("Catalogo")
 
     def tint_feature_card(self, card, accent):
+        card.set_glow_color(accent)
         card.setStyleSheet(f"""
             QFrame#FeatureCard {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -1484,11 +1532,42 @@ class MainWindow(QMainWindow):
         worker.finished.connect(lambda w=worker: self.content_install_workers.remove(w) if w in self.content_install_workers else None)
         worker.start()
 
+    def fade_in_page(self, page):
+        if self.page_animation is not None:
+            self.page_animation.stop()
+        effect = QGraphicsOpacityEffect(page)
+        effect.setOpacity(0.0)
+        page.setGraphicsEffect(effect)
+        animation = QPropertyAnimation(effect, b"opacity", page)
+        animation.setDuration(260)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.finished.connect(lambda: page.setGraphicsEffect(None))  # a riposo nessun effetto: testo nitido
+        self.page_animation = animation
+        animation.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, "_intro_played", False):
+            self._intro_played = True
+            self.setWindowOpacity(0.0)
+            self._intro = QPropertyAnimation(self, b"windowOpacity", self)
+            self._intro.setDuration(380)
+            self._intro.setStartValue(0.0)
+            self._intro.setEndValue(1.0)
+            self._intro.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._intro.start()
+
     def navigate(self, name):
-        self.stack.setCurrentWidget(self.pages[name])
+        page = self.pages[name]
+        changed = self.stack.currentWidget() is not page
+        self.stack.setCurrentWidget(page)
+        if changed:
+            self.fade_in_page(page)
         for label, button in self.nav_buttons.items():
             button.setChecked(label == name)
-            
+
         if name == "Le mie istanze": self.refresh_instances()
         if name in ("Mod", "Shader", "Resource Pack"): self.refresh_content_instances()
         if name == "Catalogo" and self.results.count() == 0: self.search_modpacks()

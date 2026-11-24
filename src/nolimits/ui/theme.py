@@ -86,7 +86,7 @@ QFrame#SidebarDivider {{ background: {BORDER}; border: none; max-height: 1px; mi
 
 QPushButton#Nav {{
     text-align: left;
-    padding: 10px 14px;
+    padding: 12px 14px;
     border: 1px solid transparent;
     border-radius: 12px;
     background: transparent;
@@ -126,18 +126,8 @@ QFrame#RightPanel {{
     border: 1px solid {BORDER_ACCENT};
     border-radius: 20px;
 }}
-QPushButton#ChipCurse {{
-    background: rgba(255, 125, 50, 0.12); border: 1px solid rgba(255, 125, 50, 0.40);
-    color: #ff9a5c; border-radius: 10px; padding: 6px 10px; font-size: 11px; font-weight: 700;
-}}
-QPushButton#ChipCurse:hover {{ background: rgba(255, 125, 50, 0.24); }}
-QPushButton#ChipModrinth {{
-    background: rgba(27, 217, 106, 0.12); border: 1px solid rgba(27, 217, 106, 0.40);
-    color: #34e58a; border-radius: 10px; padding: 6px 10px; font-size: 11px; font-weight: 700;
-}}
-QPushButton#ChipModrinth:hover {{ background: rgba(27, 217, 106, 0.24); }}
 QPushButton#ServerButton {{
-    text-align: left; padding: 10px 14px; border-radius: 12px;
+    text-align: left; padding: 9px 12px; border-radius: 12px; font-size: 12px;
     background: {SURFACE}; border: 1px solid {BORDER}; color: {TEXT}; font-weight: 700;
 }}
 QPushButton#ServerButton:hover {{ background: {SURFACE_HOVER}; border-color: {VIOLET}; }}
