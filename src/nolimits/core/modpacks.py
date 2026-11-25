@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import hashlib
+import shlex
 import subprocess
 import uuid
 import os
@@ -11,12 +12,10 @@ import requests
 import minecraft_launcher_lib
 
 from nolimits.core.instances import InstanceStore
+from nolimits.core.runtime import ROOT, GAME_DIR, INSTANCES_DIR, loader_from_dependencies, read_mrpack_index
 
 API = "https://api.modrinth.com/v2"
 HEADERS = {"User-Agent": "NoLimitsLauncher/0.3.0 (desktop)"}
-ROOT = Path.home() / ".no-limits-launcher"
-GAME_DIR = ROOT / "game"
-INSTANCES_DIR = ROOT / "instances"
 
 
 def _safe_name(value: str) -> str:
@@ -73,13 +72,36 @@ def install_modrinth_project(project_id: str, display_name: str, progress=None, 
         callback={"setStatus": set_status, "setProgress": set_progress, "setMax": set_max},
     )
     launch_version = minecraft_launcher_lib.mrpack.get_mrpack_launch_version(str(archive))
-    dependencies = info.get("dependencies", {})
-    pack_loader = next((loader for key, loader in (("fabric", "fabric"), ("forge", "forge"), ("neoforge", "neoforge"), ("quilt", "quilt")) if dependencies.get(key)), "vanilla")
-    item = store.add_instance(name, info.get("minecraftVersion", "sconosciuta"), pack_loader)
-    item.update({"directory": str(instance_dir), "archive": str(archive), "launch_version": launch_version, "source": "modrinth", "project_id": project_id, "project_version_id": selected["id"], "icon_url": icon_url, "status": "installed"})
+    dependencies = read_mrpack_index(archive).get("dependencies", {})
+    pack_loader, pack_loader_version = loader_from_dependencies(dependencies)
+    item = store.add_instance(name, info.get("minecraftVersion") or dependencies.get("minecraft", "sconosciuta"), pack_loader)
+    item.update({"directory": str(instance_dir), "archive": str(archive), "launch_version": launch_version, "loader_version": pack_loader_version, "source": "modrinth", "project_id": project_id, "project_version_id": selected["id"], "icon_url": icon_url, "status": "installed"})
     store.update_instance(item["id"], item)
     report(100, "Installazione completata.")
     return item
+
+
+def instance_launch_options(instance: dict) -> dict:
+    """Traduce le impostazioni modificabili di un'istanza (RAM, Java, argomenti, risoluzione) in opzioni di avvio."""
+    options: dict = {}
+    jvm: list[str] = []
+    minimum, maximum = int(instance.get("memory_min") or 0), int(instance.get("memory_max") or 0)
+    if minimum > 0:
+        jvm.append(f"-Xms{minimum}M")
+    if maximum > 0:
+        jvm.append(f"-Xmx{maximum}M")
+    extra = str(instance.get("jvm_args") or "").strip()
+    if extra:
+        jvm.extend(shlex.split(extra, posix=(os.name != "nt")))
+    if jvm:
+        options["jvmArguments"] = jvm
+    java = str(instance.get("java_path") or "").strip()
+    if java:
+        options["executablePath"] = java
+    width, height = int(instance.get("resolution_width") or 0), int(instance.get("resolution_height") or 0)
+    if width > 0 and height > 0:
+        options.update({"customResolution": True, "resolutionWidth": str(width), "resolutionHeight": str(height)})
+    return options
 
 
 def launch_instance(instance: dict, profile: dict | None = None, offline_username: str | None = None) -> subprocess.Popen:
@@ -101,6 +123,7 @@ def launch_instance(instance: dict, profile: dict | None = None, offline_usernam
     version = instance.get("launch_version") or instance.get("minecraft_version")
     minecraft_launcher_lib.install.install_minecraft_version(version, str(GAME_DIR))
     options = {"username": username, "uuid": player_uuid, "token": token, "userType": user_type, "userProperties": "{}", "gameDirectory": str(game_dir), "launcherName": "No Limits Launcher", "launcherVersion": "0.3.0"}
+    options.update(instance_launch_options(instance))
     command = minecraft_launcher_lib.command.get_minecraft_command(version, str(GAME_DIR), options)
     kwargs = {"cwd": str(game_dir), "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "bufsize": 1, "errors": "replace"}
     if os.name == "nt":

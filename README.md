@@ -12,6 +12,10 @@ Launcher Minecraft desktop multipiattaforma, in sviluppo, indipendente da Nuovo 
 - Refresh token nel portachiavi di sistema con namespace separato dal vecchio launcher
 - Il portachiavi usa un namespace separato: non sovrascrive i token di Nuovo Ordine
 - Provider CurseForge predisposto ma non ancora implementato: richiede API key autorizzata
+- **Importa** (come su Prism): trascina o scegli un file, oppure incolla un link. Riconosce dal contenuto dello ZIP i modpack Modrinth (`.mrpack`), CurseForge (`.zip`) e Prism/MultiMC (`.zip`, con RAM, argomenti JVM e note)
+- **Modifica istanza**: nome, icona, note, versione di Minecraft e mod loader, RAM, Java, argomenti JVM, risoluzione, e gestione di mod / resource pack / shader (attiva, disattiva, aggiungi, rimuovi). Inoltre duplica, apri cartella ed elimina
+- Le impostazioni dell'istanza (RAM, Java, argomenti, risoluzione) vengono applicate all'avvio
+- Nota CurseForge: le mod si scaricano senza API key dal sito, quindi alcune possono essere saltate (le elenca a fine import). Con una chiave autorizzata in `NOLIMITS_CURSEFORGE_API_KEY` il download passa dall'API ufficiale
 
 ## Avvio da sorgente
 Python 3.11+:
@@ -22,6 +26,12 @@ python -m venv .venv
 pip install -e .
 python -m nolimits
 ```
+
+## Test
+```bash
+python tests/test_core.py
+```
+Verificano riconoscimento dei formati, import, estrazione sicura e opzioni di avvio senza rete né Minecraft (le librerie esterne sono simulate).
 
 ## Login Microsoft
 Apri Account, inserisci il Client ID pubblico (Application/Client ID) dell'app Microsoft registrata per account personali, abilita il flusso client pubblico/device code in Microsoft Entra e premi Accedi. Il Client ID non era presente nel file di configurazione pubblico di Nuovo Ordine, quindi va inserito qui o impostato in NO_LIMITS_MSA_CLIENT_ID. Non inserire client secret o password nel launcher. Il Client ID può essere fornito anche tramite variabile d'ambiente `NO_LIMITS_MSA_CLIENT_ID`.

@@ -3,19 +3,22 @@ import json
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve, QRectF, QPoint
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath, QPen, QFont, QLinearGradient, QBrush
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray, QTimer, QPropertyAnimation, QEasingCurve, QRectF, QPoint, QUrl
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath, QPen, QFont, QLinearGradient, QBrush, QDesktopServices, QCursor
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QFrame,
-    QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox, QTabWidget
+    QStackedWidget, QGridLayout, QScrollArea, QProgressBar, QPlainTextEdit, QComboBox, QTabWidget,
+    QDialog, QFileDialog, QMenu, QProgressDialog
 )
 
 from nolimits.providers.modrinth import ModrinthProvider
 from nolimits.core.instances import InstanceStore
 from nolimits.core.modpacks import install_modrinth_project, launch_instance, search_modrinth_content, install_modrinth_content
+from nolimits.core.importer import import_modpack
+from nolimits.core.runtime import install_instance
 from nolimits import auth
 from .theme import DARK_STYLE
 
@@ -54,6 +57,7 @@ NAV_ART = {
     "Home": '<path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z"/>',
     "Catalogo": '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
     "Le mie istanze": '<rect x="4" y="4" width="16" height="5" rx="1"/><rect x="4" y="11" width="16" height="5" rx="1"/><path d="M4 19h16"/>',
+    "Importa": '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
     "Console": '<path d="m5 6 6 6-6 6M13 18h6"/>',
     "Mod": '<path d="M9 4a2 2 0 1 1 4 0v2h3a2 2 0 0 1 2 2v3h2a2 2 0 1 1 0 4h-2v3a2 2 0 0 1-2 2h-3v-2a2 2 0 1 0-4 0v2H6a2 2 0 0 1-2-2v-3h2a2 2 0 1 0 0-4H4V8a2 2 0 0 1 2-2h3z"/>',
     "Shader": '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7z"/>',
@@ -195,26 +199,33 @@ def load_logo_pixmap(width, dpr=2.0):
     return pixmap
 
 
-def nav_icon(name, idle="#a59cc9", active="#ffffff", size=18):
-    """Icona di navigazione a due stati (normale / selezionata) generata dagli SVG di NAV_ART."""
-    icon = QIcon()
+def nav_pixmap(name, color, size=18, dpr=2.0):
+    """Disegna una delle icone di NAV_ART nel colore richiesto, nitida su display HiDPI."""
     shapes = NAV_ART.get(name)
     if not shapes:
-        return icon
+        return None
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        f'stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{shapes}</svg>'
+    )
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    pixmap = QPixmap(int(size * dpr), int(size * dpr))
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter)
+    painter.end()
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def nav_icon(name, idle="#a59cc9", active="#ffffff", size=18):
+    """Icona di navigazione a due stati (normale / selezionata)."""
+    icon = QIcon()
     for color, state in ((idle, QIcon.State.Off), (active, QIcon.State.On)):
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
-            f'stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{shapes}</svg>'
-        )
-        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-        pixmap = QPixmap(size * 2, size * 2)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        renderer.render(painter)
-        painter.end()
-        pixmap.setDevicePixelRatio(2.0)
-        icon.addPixmap(pixmap, QIcon.Mode.Normal, state)
+        pixmap = nav_pixmap(name, color, size)
+        if pixmap is not None:
+            icon.addPixmap(pixmap, QIcon.Mode.Normal, state)
     return icon
 
 
@@ -388,6 +399,64 @@ class ClickableFrame(QFrame):
         super().mouseReleaseEvent(event)
 
 
+class DropZone(QFrame):
+    """Area in cui trascinare un file: si evidenzia al passaggio e si può anche cliccare per scegliere un file."""
+    file_dropped = Signal(str)
+    clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("DropZone")
+        self.setAcceptDrops(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setProperty("hover", "false")
+
+    def _set_hover(self, value):
+        self.setProperty("hover", "true" if value else "false")
+        repolish(self)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+            self._set_hover(True)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._set_hover(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self._set_hover(False)
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                event.acceptProposedAction()
+                self.file_dropped.emit(url.toLocalFile())
+                return
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
+class TaskWorker(QThread):
+    """Esegue `fn(progress)` fuori dal thread dell'interfaccia, così la finestra non si blocca."""
+    completed = Signal(object)
+    failed = Signal(str)
+    progress = Signal(int, str)
+
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def run(self):
+        try:
+            self.completed.emit(self.fn(self.progress.emit))
+        except Exception as exc:
+            self.failed.emit(str(exc) or exc.__class__.__name__)
+
+
 class SearchWorker(QThread):
     completed = Signal(list)
     failed = Signal(str)
@@ -542,7 +611,7 @@ class SessionWorker(QThread):
 
 class MainWindow(QMainWindow):
     NAV_GROUPS = [
-        ("ESPLORA", ["Home", "Catalogo"]),
+        ("ESPLORA", ["Home", "Catalogo", "Importa"]),
         ("LIBRERIA", ["Le mie istanze", "Mod", "Shader", "Resource Pack"]),
         ("SISTEMA", ["Console", "Impostazioni"]),
     ]
@@ -553,6 +622,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 880)
         self.setMinimumSize(1120, 720)
         self.setStyleSheet(DARK_STYLE)
+        self.setAcceptDrops(True)  # trascina un modpack ovunque nella finestra per importarlo
 
         self.store = InstanceStore()
         self.config = load_config()
@@ -565,6 +635,8 @@ class MainWindow(QMainWindow):
         self.skin_worker = None
         self.cover_workers = []
         self.page_animation = None
+        self.import_worker = None
+        self._tasks = []
 
         self.hero_index = 0
         self.hero_packs = [
@@ -603,7 +675,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(right_column)
 
         self.pages = {}
-        for name in ["Home", "Catalogo", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
+        for name in ["Home", "Catalogo", "Importa", "Le mie istanze", "Console", "Mod", "Shader", "Resource Pack", "Impostazioni"]:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
@@ -613,6 +685,7 @@ class MainWindow(QMainWindow):
 
         self.build_home()
         self.build_catalog()
+        self.build_import()
         self.build_instances()
         self.build_console()
         self.build_simple_pages()
@@ -1191,30 +1264,241 @@ class MainWindow(QMainWindow):
 
     def build_instances(self):
         p = self.pages["Le mie istanze"]
-        self.page_header("Le mie istanze", "Le tue installazioni", "Ogni istanza avrà cartella, versione Minecraft e mod loader indipendenti.")
+        self.page_header("Le mie istanze", "Le tue istanze", "Avvia, modifica o duplica: ogni istanza ha cartella, versione e mod loader indipendenti.")
         row = QHBoxLayout()
-        launch = QPushButton("▶ Avvia selezionata")
+        row.setSpacing(8)
+        launch = QPushButton("▶  Avvia")
         launch.setObjectName("Primary")
         launch.clicked.connect(self.launch_selected_instance)
+        edit = QPushButton("Modifica")
+        edit.clicked.connect(self.edit_selected_instance)
+        more = QPushButton("Altro  ▾")
+        more.setMenu(self.build_instance_menu(full=False))
         row.addWidget(launch)
+        row.addWidget(edit)
+        row.addWidget(more)
         row.addStretch()
-        add = QPushButton("+ Nuova istanza")
+        import_btn = QPushButton("Importa…")
+        import_btn.clicked.connect(lambda: self.navigate("Importa"))
+        add = QPushButton("+  Nuova istanza")
         add.setObjectName("Primary")
         add.clicked.connect(self.add_instance)
+        row.addWidget(import_btn)
         row.addWidget(add)
         p.layout().addLayout(row)
+
         self.instance_list = QListWidget()
         self.instance_list.setSpacing(8)
+        self.instance_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.instance_list.customContextMenuRequested.connect(self.show_instance_menu)
+        self.instance_list.itemDoubleClicked.connect(lambda _item: self.edit_selected_instance())
         p.layout().addWidget(self.instance_list, 1)
-        controls = QHBoxLayout()
-        rename = QPushButton("Rinomina")
-        rename.clicked.connect(self.rename_selected_instance)
-        controls.addWidget(rename)
-        remove = QPushButton("Elimina")
-        remove.clicked.connect(self.delete_selected_instance)
-        controls.addWidget(remove)
-        p.layout().addLayout(controls)
         self.refresh_instances()
+
+    def build_instance_menu(self, full):
+        menu = QMenu(self)
+        if full:
+            menu.addAction("Avvia").triggered.connect(self.launch_selected_instance)
+            menu.addAction("Modifica…").triggered.connect(self.edit_selected_instance)
+            menu.addSeparator()
+        menu.addAction("Duplica…").triggered.connect(self.duplicate_selected_instance)
+        menu.addAction("Apri cartella").triggered.connect(self.open_selected_instance_folder)
+        menu.addSeparator()
+        menu.addAction("Elimina").triggered.connect(self.delete_selected_instance)
+        return menu
+
+    def show_instance_menu(self, _position):
+        if self.selected_instance(quiet=True):
+            self.build_instance_menu(full=True).exec(QCursor.pos())
+
+    # -------------------------------------------------------------- importa
+    def build_import(self):
+        p = self.pages["Importa"]
+        self.page_header("Importa", "Importa un modpack", "Trascina un file, scegline uno o incolla un link: come su Prism Launcher.")
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget()
+        body.setObjectName("ScrollBody")
+        scroll.setWidget(body)
+        body.setAutoFillBackground(False)
+        v = QVBoxLayout(body)
+        v.setContentsMargins(0, 0, 8, 0)
+        v.setSpacing(14)
+        p.layout().addWidget(scroll, 1)
+
+        zone = DropZone()
+        zone.setMinimumHeight(190)
+        zl = QVBoxLayout(zone)
+        zl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        zl.setSpacing(6)
+        art = QLabel()
+        art.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pixmap = nav_pixmap("Importa", "#c4b5fd", 46)
+        if pixmap is not None:
+            art.setPixmap(pixmap)
+        title = QLabel("Trascina qui il modpack")
+        title.setObjectName("DropTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint = QLabel("oppure clicca per scegliere un file dal computer")
+        hint.setObjectName("Muted")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tags = QHBoxLayout()
+        tags.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tags.setSpacing(8)
+        for text in (".mrpack  ·  Modrinth", ".zip  ·  CurseForge", ".zip  ·  Prism / MultiMC"):
+            tag = QLabel(text)
+            tag.setObjectName("Tag")
+            tags.addWidget(tag)
+        zl.addWidget(art)
+        zl.addWidget(title)
+        zl.addWidget(hint)
+        zl.addSpacing(6)
+        zl.addLayout(tags)
+        zone.file_dropped.connect(self.start_import)
+        zone.clicked.connect(self.choose_import_file)
+        v.addWidget(zone)
+
+        frame, box = self.panel("Da un link", "Pagina di un modpack su Modrinth oppure link diretto a un file .mrpack o .zip.")
+        link_row = QHBoxLayout()
+        link_row.setSpacing(8)
+        self.import_url_input = QLineEdit()
+        self.import_url_input.setPlaceholderText("https://modrinth.com/modpack/…")
+        self.import_url_input.returnPressed.connect(lambda: self.start_import(self.import_url_input.text()))
+        self.import_button = QPushButton("Importa")
+        self.import_button.setObjectName("Primary")
+        self.import_button.clicked.connect(lambda: self.start_import(self.import_url_input.text()))
+        link_row.addWidget(self.import_url_input, 1)
+        link_row.addWidget(self.import_button)
+        box.addLayout(link_row)
+        self.import_name_input = QLineEdit()
+        self.import_name_input.setPlaceholderText("Nome dell'istanza (facoltativo: se vuoto usa quello del modpack)")
+        box.addWidget(self.import_name_input)
+        v.addWidget(frame)
+
+        status_frame, status_box = self.panel()
+        self.import_progress = QProgressBar()
+        self.import_progress.setRange(0, 100)
+        self.import_status = QLabel("Nessuna importazione in corso.")
+        self.import_status.setObjectName("Muted")
+        status_box.addWidget(self.import_progress)
+        status_box.addWidget(self.import_status)
+        note = QLabel("I modpack CurseForge scaricano le mod dal sito: se un autore ne vieta il download automatico, "
+                      "quella mod viene saltata e te la elenco a fine importazione, così puoi aggiungerla a mano dalla scheda Mod dell'istanza.")
+        note.setObjectName("Muted")
+        note.setWordWrap(True)
+        status_box.addWidget(note)
+        v.addWidget(status_frame)
+        v.addStretch()
+
+    def choose_import_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Scegli un modpack", "", "Modpack (*.mrpack *.zip);;Tutti i file (*)")
+        if path:
+            self.start_import(path)
+
+    def start_import(self, source):
+        if self.import_worker is not None and self.import_worker.isRunning():
+            QMessageBox.information(self, "Importazione in corso", "Attendi che l'importazione corrente sia finita.")
+            return
+        source = str(source).strip()
+        if not source:
+            QMessageBox.information(self, "Importa un modpack", "Incolla un link oppure scegli un file da importare.")
+            return
+        name = self.import_name_input.text().strip() or None
+        key = self.config.get("curseforge_api_key") or None
+        self.navigate("Importa")
+        self.import_button.setEnabled(False)
+        self.import_progress.setValue(0)
+        self.import_status.setText("Avvio importazione…")
+        worker = TaskWorker(lambda progress: import_modpack(source, name, progress, key))
+        worker.progress.connect(self.import_progress_update)
+        worker.completed.connect(self.import_success)
+        worker.failed.connect(self.import_failed)
+        worker.finished.connect(lambda: self.import_button.setEnabled(True))
+        self.import_worker = worker
+        worker.start()
+
+    def import_progress_update(self, value, message):
+        self.import_progress.setValue(max(0, min(100, int(value))))
+        self.import_status.setText(message)
+        self.log_console(f"[IMPORT {int(value):3d}%] {message}")
+
+    def import_success(self, instance):
+        self.import_progress.setValue(100)
+        self.import_status.setText(f"«{instance['name']}» importato.")
+        self.import_url_input.clear()
+        self.import_name_input.clear()
+        self.refresh_instances()
+        warnings = instance.get("import_warnings") or []
+        box = QMessageBox(self)
+        box.setWindowTitle("Importazione completata")
+        box.setText(f"«{instance['name']}» è stato importato.")
+        if warnings:
+            shown = "\n".join(warnings[:8]) + (f"\n… e altre {len(warnings) - 8}" if len(warnings) > 8 else "")
+            box.setInformativeText(f"{len(warnings)} mod non sono state scaricate (spesso l'autore ne vieta il download automatico):\n\n{shown}")
+        go = box.addButton("Vai alle istanze", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Chiudi", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is go:
+            self.navigate("Le mie istanze")
+            self.select_instance(instance["id"])
+
+    def import_failed(self, message):
+        self.import_status.setText("Importazione non riuscita.")
+        self.log_console(f"[ERRORE IMPORT] {message}")
+        QMessageBox.warning(self, "Importazione non riuscita", message)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                event.acceptProposedAction()
+                self.start_import(url.toLocalFile())
+                return
+        super().dropEvent(event)
+
+    # ------------------------------------------------ attività in background
+    def run_task(self, title, fn, on_success):
+        """Esegue `fn(progress)` in un thread mostrando una finestra di avanzamento."""
+        dialog = QProgressDialog(title, "", 0, 100, self)
+        dialog.setWindowTitle("No Limits Launcher")
+        dialog.setCancelButton(None)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setMinimumWidth(440)
+        dialog.setValue(0)
+        worker = TaskWorker(fn)
+
+        def progress(value, message):
+            dialog.setLabelText(f"{title}\n{message}")
+            dialog.setValue(max(0, min(99, int(value))))
+            self.log_console(f"[{title.upper()} {int(value):3d}%] {message}")
+
+        def done(result):
+            dialog.close()
+            on_success(result)
+
+        def failed(message):
+            dialog.close()
+            self.log_console(f"[ERRORE] {title}: {message}")
+            QMessageBox.warning(self, title, message)
+
+        worker.progress.connect(progress)
+        worker.completed.connect(done)
+        worker.failed.connect(failed)
+        worker.finished.connect(lambda: self._tasks.remove(worker) if worker in self._tasks else None)
+        self._tasks.append(worker)
+        worker.start()
+        dialog.show()
 
     def build_simple_pages(self):
         for name, desc in [
@@ -1595,7 +1879,7 @@ class MainWindow(QMainWindow):
         list_widget.setItemWidget(item, label)
 
     def make_result_card(self, list_widget, item, title, meta, description="", badge=None,
-                         badge_ok=True, icon_url=None, height=100):
+                         badge_ok=True, icon_url=None, icon_path=None, height=100):
         card = ContentResultCard(list_widget, item)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(12, 10, 16, 10)
@@ -1603,6 +1887,12 @@ class MainWindow(QMainWindow):
 
         cover = PackIcon(72, 21, 0, title)
         layout.addWidget(cover)
+        if icon_path:  # icona scelta dall'utente: ha la precedenza su quella online
+            try:
+                if cover.set_cover_data(Path(icon_path).read_bytes()):
+                    icon_url = None
+            except OSError:
+                pass
 
         details = QVBoxLayout()
         details.setSpacing(3)
@@ -1688,13 +1978,9 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, 'Installazione modpack', message)
 
     def launch_selected_instance(self):
-        row = self.instance_list.currentRow()
-        instances = self.store.list_instances()
-        if row < 0 or row >= len(instances):
-            QMessageBox.information(self, 'Seleziona un\'istanza', 'Seleziona prima un\'istanza installata.')
-            return
-        instance = instances[row]
-        self._exec_launch_instance(instance)
+        instance = self.selected_instance()
+        if instance:
+            self._exec_launch_instance(instance)
 
     def quick_launch_instance(self):
         instance = self.top_instance_combo.currentData()
@@ -1708,7 +1994,12 @@ class MainWindow(QMainWindow):
 
     def _exec_launch_instance(self, instance):
         if instance.get('status') != 'installed':
-            QMessageBox.information(self, 'Non installata', 'Questa istanza non è ancora pronta o installata.')
+            answer = QMessageBox.question(
+                self, 'Istanza non installata',
+                f"Questa istanza non è ancora installata. Scaricare ora Minecraft {instance.get('minecraft_version', '')} "
+                f"({str(instance.get('loader', 'vanilla')).title()})?")
+            if answer == QMessageBox.StandardButton.Yes:
+                self.install_instance_runtime(instance)
             return
         offline_name = self.offline_name_input.text().strip() if hasattr(self, "offline_name_input") else ""
         if not self.account and not offline_name:
@@ -1737,10 +2028,84 @@ class MainWindow(QMainWindow):
         loader, ok = QInputDialog.getItem(self, "Mod loader", "Seleziona:", ["Vanilla", "Fabric", "Forge", "NeoForge", "Quilt"], 0, False)
         if not ok: return
         try:
-            self.store.add_instance(name, version, loader)
-            self.refresh_instances()
+            item = self.store.add_instance(name, version, loader)
         except ValueError as exc:
             QMessageBox.warning(self, "Istanza non creata", str(exc))
+            return
+        self.refresh_instances()
+        self.select_instance(item["id"])
+        answer = QMessageBox.question(
+            self, "Scaricare Minecraft?",
+            f"Istanza creata. Scaricare ora Minecraft {item['minecraft_version']} ({item['loader'].title()})? Serve per poterla avviare.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.install_instance_runtime(item)
+
+    def install_instance_runtime(self, instance):
+        self.run_task("Installazione istanza", lambda progress: install_instance(instance, progress), self.save_instance)
+
+    def save_instance(self, instance):
+        try:
+            self.store.update_instance(instance["id"], instance)
+        except Exception as exc:
+            QMessageBox.warning(self, "Istanza", str(exc))
+            return
+        self.refresh_instances()
+        self.select_instance(instance["id"])
+
+    def selected_instance(self, quiet=False):
+        item = self.instance_list.currentItem()
+        instance = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not instance and not quiet:
+            QMessageBox.information(self, "Seleziona un'istanza", "Seleziona prima un'istanza dalla lista.")
+        return instance
+
+    def select_instance(self, instance_id):
+        for row in range(self.instance_list.count()):
+            item = self.instance_list.item(row)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("id") == instance_id:
+                self.instance_list.setCurrentItem(item)
+                return
+
+    def edit_selected_instance(self):
+        instance = self.selected_instance()
+        if not instance: return
+        from .instance_dialog import InstanceEditDialog  # import locale: il dialogo usa PackIcon di questo modulo
+        others = [i.get("name", "") for i in self.store.list_instances() if i.get("id") != instance.get("id")]
+        dialog = InstanceEditDialog(self, instance, others)
+        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        updated = dict(instance)
+        updated.update(dialog.values())
+        if dialog.runtime_changed() and instance.get("status") == "installed":
+            answer = QMessageBox.question(
+                self, "Cambiare versione o loader",
+                f"Per applicare la modifica verrà scaricato Minecraft {updated['minecraft_version']} ({updated['loader'].title()}).\n\n"
+                "Le mod già presenti potrebbero non essere compatibili con la nuova versione. Continuare?")
+            if answer != QMessageBox.StandardButton.Yes: return
+            self.run_task("Aggiornamento istanza", lambda progress: install_instance(updated, progress), self.save_instance)
+        else:
+            self.save_instance(updated)
+
+    def duplicate_selected_instance(self):
+        instance = self.selected_instance()
+        if not instance: return
+        name, ok = QInputDialog.getText(self, "Duplica istanza", "Nome della copia:", text=f"{instance.get('name', 'Istanza')} (copia)")
+        if not ok or not name.strip(): return
+        store, instance_id = self.store, instance["id"]
+        self.run_task(
+            "Duplicazione istanza",
+            lambda progress: store.duplicate_instance(instance_id, name, progress),
+            lambda copy: (self.refresh_instances(), self.select_instance(copy["id"])),
+        )
+
+    def open_selected_instance_folder(self):
+        instance = self.selected_instance()
+        if not instance: return
+        directory = Path(instance.get("directory") or "")
+        if not directory.is_dir():
+            QMessageBox.information(self, "Cartella non trovata", "La cartella non esiste ancora: l'istanza non è stata installata.")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
 
     def refresh_instances(self):
         if not hasattr(self, "instance_list"): return
@@ -1765,6 +2130,7 @@ class MainWindow(QMainWindow):
                 badge="INSTALLATA" if installed else str(instance.get("status", "")).upper(),
                 badge_ok=installed,
                 icon_url=instance.get("icon_url"),
+                icon_path=instance.get("icon_path"),
                 height=96,
             )
             if installed:
@@ -1772,24 +2138,11 @@ class MainWindow(QMainWindow):
 
         self.refresh_content_instances()
 
-    def rename_selected_instance(self):
-        item = self.instance_list.currentItem()
-        instance = item.data(Qt.ItemDataRole.UserRole) if item else None
-        if not instance: return
-        name, ok = QInputDialog.getText(self, "Rinomina istanza", "Nuovo nome:", text=instance.get("name", ""))
-        if ok and name.strip():
-            instance["name"] = name.strip()
-            try:
-                self.store.update_instance(instance["id"], instance)
-                self.refresh_instances()
-            except Exception as exc:
-                QMessageBox.warning(self, "Istanza", str(exc))
-
     def delete_selected_instance(self):
         item = self.instance_list.currentItem()
         instance = item.data(Qt.ItemDataRole.UserRole) if item else None
         if not instance: return
-        answer = QMessageBox.question(self, "Elimina istanza", "Eliminare l'istanza selezionata e tutti i suoi file?")
+        answer = QMessageBox.question(self, "Elimina istanza", f"Eliminare «{instance.get('name', 'istanza')}» e tutti i suoi file (mondi inclusi)? Non si può annullare.")
         if answer != QMessageBox.StandardButton.Yes: return
         try:
             import shutil

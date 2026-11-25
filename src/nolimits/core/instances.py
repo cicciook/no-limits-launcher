@@ -19,6 +19,40 @@ class InstanceStore:
         except (json.JSONDecodeError, OSError):
             return []
 
+    def get_instance(self, instance_id: str) -> dict | None:
+        return next((item for item in self.list_instances() if item.get("id") == instance_id), None)
+
+    def name_taken(self, name: str, ignore_id: str | None = None) -> bool:
+        wanted = name.strip().casefold()
+        return any(item.get("name", "").casefold() == wanted and item.get("id") != ignore_id for item in self.list_instances())
+
+    def duplicate_instance(self, instance_id: str, new_name: str, progress=None) -> dict:
+        """Copia istanza e cartella (può essere lenta: da chiamare fuori dal thread dell'interfaccia)."""
+        import shutil
+        from nolimits.core.runtime import new_instance_dir
+        source = self.get_instance(instance_id)
+        if source is None:
+            raise KeyError(instance_id)
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("Il nome dell'istanza non può essere vuoto.")
+        if self.name_taken(new_name):
+            raise ValueError("Esiste già un'istanza con questo nome.")
+        copy = dict(source)
+        copy.pop("import_warnings", None)
+        origin = Path(source.get("directory") or "")
+        if origin.is_dir():
+            target = new_instance_dir(new_name)
+            (progress or (lambda *_: None))(10, "Copia dei file dell'istanza…")
+            shutil.copytree(origin, target, dirs_exist_ok=True)
+            copy["directory"] = str(target)
+        copy.update({"id": f"instance-{int(datetime.now(timezone.utc).timestamp() * 1000)}", "name": new_name,
+                     "created_at": datetime.now(timezone.utc).isoformat()})
+        items = self.list_instances()
+        items.append(copy)
+        self._write(items)
+        return copy
+
     def update_instance(self, instance_id: str, updated: dict) -> None:
         items = self.list_instances()
         for index, item in enumerate(items):

@@ -338,6 +338,53 @@ QTabBar::tab {{
 QTabBar::tab:hover {{ color: #ffffff; background: rgba(255, 255, 255, 0.04); }}
 QTabBar::tab:selected {{ color: #ffffff; background: rgba(139, 92, 246, 0.30); }}
 
+/* ----------------------------------------------------- importa / dialoghi */
+QFrame#DropZone {{
+    background: rgba(139, 92, 246, 0.07);
+    border: 2px dashed rgba(167, 139, 250, 0.45);
+    border-radius: 24px;
+}}
+QFrame#DropZone:hover, QFrame#DropZone[hover="true"] {{
+    background: rgba(139, 92, 246, 0.17);
+    border: 2px dashed #a78bfa;
+}}
+QLabel#DropTitle {{ font-size: 19px; font-weight: 800; color: #ffffff; }}
+
+QDialog#InstanceDialog {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {BG_2}, stop:1 {BG_0});
+}}
+QSpinBox {{
+    background: rgba(255, 255, 255, 0.045); color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 12px; padding: 9px 14px;
+}}
+QSpinBox:hover {{ border-color: rgba(167, 139, 250, 0.30); }}
+QSpinBox:focus {{ border: 1px solid {VIOLET}; background: rgba(139, 92, 246, 0.08); }}
+QPlainTextEdit#NotesEdit {{
+    background: rgba(255, 255, 255, 0.04); color: {TEXT};
+    font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 13px;
+    border: 1px solid {BORDER}; border-radius: 12px; padding: 12px;
+}}
+QPlainTextEdit#NotesEdit:focus {{ border: 1px solid {VIOLET}; }}
+
+QListWidget#FileList {{ background: rgba(255, 255, 255, 0.02); border: 1px solid {BORDER}; border-radius: 12px; padding: 6px; }}
+QListWidget#FileList::item {{ padding: 8px 10px; border-radius: 8px; color: {TEXT}; margin: 1px 0px; }}
+QListWidget#FileList::item:hover {{ background: {SURFACE_HOVER}; }}
+QListWidget#FileList::item:selected {{ background: rgba(139, 92, 246, 0.32); color: #ffffff; }}
+QListWidget#FileList::indicator {{
+    width: 16px; height: 16px; border-radius: 5px;
+    border: 1px solid rgba(167, 139, 250, 0.55); background: transparent;
+}}
+QListWidget#FileList::indicator:checked {{ background: {VIOLET}; border: 1px solid {PURPLE}; }}
+
+QPushButton::menu-indicator {{ image: none; width: 0px; }}
+QMenu {{
+    background: #18122e; color: {TEXT};
+    border: 1px solid rgba(167, 139, 250, 0.40); border-radius: 12px; padding: 6px;
+}}
+QMenu::item {{ padding: 8px 26px 8px 16px; border-radius: 8px; }}
+QMenu::item:selected {{ background: {VIOLET_DEEP}; color: #ffffff; }}
+QMenu::separator {{ height: 1px; background: {BORDER}; margin: 6px 8px; }}
+
 /* ------------------------------------------------------------- console */
 QPlainTextEdit {{
     background: #06040d;
