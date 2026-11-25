@@ -1,9 +1,15 @@
 import json
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 
 DATA_DIR = Path.home() / ".no-limits-launcher"
 INSTANCES_FILE = DATA_DIR / "instances.json"
+
+def new_instance_id() -> str:
+    """Id unico: il solo timestamp in millisecondi può ripetersi se due istanze nascono nello stesso istante."""
+    return f"instance-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{uuid.uuid4().hex[:6]}"
+
 
 class InstanceStore:
     def __init__(self, path: Path = INSTANCES_FILE):
@@ -46,7 +52,7 @@ class InstanceStore:
             (progress or (lambda *_: None))(10, "Copia dei file dell'istanza…")
             shutil.copytree(origin, target, dirs_exist_ok=True)
             copy["directory"] = str(target)
-        copy.update({"id": f"instance-{int(datetime.now(timezone.utc).timestamp() * 1000)}", "name": new_name,
+        copy.update({"id": new_instance_id(), "name": new_name,
                      "created_at": datetime.now(timezone.utc).isoformat()})
         items = self.list_instances()
         items.append(copy)
@@ -79,7 +85,7 @@ class InstanceStore:
         items = self.list_instances()
         if any(item.get("name", "").casefold() == name.casefold() for item in items):
             raise ValueError("Esiste già un'istanza con questo nome.")
-        item = {"id": f"instance-{int(datetime.now(timezone.utc).timestamp() * 1000)}", "name": name, "minecraft_version": minecraft_version.strip(), "loader": loader.lower(), "created_at": datetime.now(timezone.utc).isoformat(), "status": "not_installed"}
+        item = {"id": new_instance_id(), "name": name, "minecraft_version": minecraft_version.strip(), "loader": loader.lower(), "created_at": datetime.now(timezone.utc).isoformat(), "status": "not_installed"}
         items.append(item)
         self._write(items)
         return item
